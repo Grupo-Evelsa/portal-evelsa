@@ -509,13 +509,14 @@ const HeyzineViewerModal = ({ url, onClose }) => {
 };
 
 const ProjectsShelf = ({ projects, onOpenModal }) => {
-    const finishedProjects = projects.filter(p => p.estadoCliente === 'Terminado' && (p.urlDocumento1 || p.urlDocumento2));
+    const finishedProjects = projects.filter(p => p.estadoCliente === 'Terminado' && p.urlHeyzine);
     const coverTemplateUrl = "https://firebasestorage.googleapis.com/v0/b/portal-evelsa.firebasestorage.app/o/portada%20Carpetas.jpeg?alt=media&token=417eb65c-1694-4efc-9e2a-55528d43a8d6";
 
     return (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-8">
             {finishedProjects.map(project => (
-                <button key={project.id} className="group text-left focus:outline-none" onClick={() => onOpenModal(project.urlDocumento2 || project.urlDocumento1)}>
+                // CORRECCIÓN 2: El onClick ahora usa 'project.urlHeyzine'
+                <button key={project.id} className="group text-left focus:outline-none" onClick={() => onOpenModal(project.urlHeyzine)}>
                     <div className="relative pt-[141%] bg-gray-200 rounded-lg shadow-lg group-hover:shadow-2xl transition-all duration-300 transform group-hover:-translate-y-1 overflow-hidden">
                         <img src={coverTemplateUrl} alt="Portada de proyecto" className="absolute inset-0 w-full h-full object-cover"/>
                         <div className="absolute inset-0 bg-black bg-opacity-40"></div>
@@ -1296,8 +1297,13 @@ const ClientProjectsList = ({ projects, onOpenModal }) => {
     );
 };
 
+// --- Reemplazar el componente ClientDashboard existente ---
+
 const ClientDashboard = ({ user, userData }) => {
+    // El estado 'projects' mantiene el historial completo para la lista detallada
     const [projects, setProjects] = useState([]);
+    // NUEVO ESTADO: 'shelfProjects' contendrá la lista sin duplicados para la estantería
+    const [shelfProjects, setShelfProjects] = useState([]);
     const [loading, setLoading] = useState(true);
     const [clientView, setClientView] = useState('shelf');
     const [modalUrl, setModalUrl] = useState(null);
@@ -1313,14 +1319,37 @@ const ClientDashboard = ({ user, userData }) => {
         
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
             const projectsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            // Ordenar en el cliente
-            projectsData.sort((a, b) => b.fechaApertura.seconds - a.fechaApertura.seconds);
+            // Ordenar todos los proyectos por fecha para la lista detallada
+            projectsData.sort((a, b) => (b.fechaApertura?.seconds || 0) - (a.fechaApertura?.seconds || 0));
+            // Guardamos la lista completa para la "Lista Detallada"
             setProjects(projectsData);
+
+            // --- NUEVA LÓGICA DE FILTRADO PARA LA ESTANTERÍA ---
+            // Usamos un Map para garantizar que solo tengamos el proyecto más reciente por cada servicio.
+            const latestProjectsMap = new Map();
+
+            projectsData.forEach(project => {
+                // Solo consideramos proyectos terminados con un enlace para la estantería
+                if (project.estadoCliente === 'Terminado' && project.urlHeyzine) {
+                    const serviceId = project.servicioId;
+                    const existingProject = latestProjectsMap.get(serviceId);
+
+                    // Si no hay un proyecto para este servicio o si el actual es más reciente, lo guardamos/reemplazamos.
+                    if (!existingProject || (project.fechaApertura?.seconds > existingProject.fechaApertura?.seconds)) {
+                        latestProjectsMap.set(serviceId, project);
+                    }
+                }
+            });
+
+            // Convertimos el mapa de vuelta a un array para pasarlo al componente
+            setShelfProjects(Array.from(latestProjectsMap.values()));
+            // --- FIN DE LA NUEVA LÓGICA ---
+
             setLoading(false);
         }, (error) => {
             console.error("Error fetching client projects: ", error);
             if (error.code === 'failed-precondition') {
-                 console.error("IMPORTANTE: Se requiere un índice compuesto en Firestore. Ve a la URL que aparece en el mensaje de error en la consola para crearlo con un solo clic.");
+                console.error("IMPORTANTE: Se requiere un índice compuesto en Firestore. Ve a la URL que aparece en el mensaje de error en la consola para crearlo con un solo clic.");
             }
             setLoading(false);
         });
@@ -1347,8 +1376,10 @@ const ClientDashboard = ({ user, userData }) => {
             ) : projects.length === 0 ? (
                 <p className="text-center text-gray-500 mt-8">No hay proyectos para mostrar.</p>
             ) : clientView === 'shelf' ? (
-                <ProjectsShelf projects={projects} onOpenModal={setModalUrl} />
+                // Pasamos la nueva lista 'shelfProjects' a la estantería
+                <ProjectsShelf projects={shelfProjects} onOpenModal={setModalUrl} />
             ) : (
+                // Pasamos la lista completa 'projects' a la lista detallada
                 <ClientProjectsList projects={projects} onOpenModal={setModalUrl} />
             )}
 

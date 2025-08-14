@@ -1092,68 +1092,84 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
     );
 };
 
-// **CÓDIGO ACTUALIZADO PARA ReviewProjectsTable (CON MODALES)**
+// **CÓDIGO ACTUALIZADO PARA ReviewProjectsTable (CON MODALES CORREGIDOS)**
 const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
     const [confirmingAction, setConfirmingAction] = useState(null);
 
+    // El handler de APROBACIÓN ahora lee el proyecto directamente desde el estado 'confirmingAction'
     const handleApprove = async () => {
         if (!confirmingAction || confirmingAction.action !== 'approve') return;
-        const { project } = confirmingAction.payload;
-        const isFinalDelivery = !!project.urlDocumento2;
-        const projectRef = doc(db, "proyectos", project.id);
         
-        if (isFinalDelivery) {
-            if (project.faseFacturacion === 'Preliminar' || project.faseFacturacion === 'Fase 2 Pendiente') {
-                await updateDoc(projectRef, { estado: 'Archivado', estadoCliente: 'Terminado' });
+        const { project } = confirmingAction.payload; // Se obtiene el proyecto del estado
+        const projectRef = doc(db, "proyectos", project.id);
+        const isFinalDelivery = !!project.urlDocumento2;
+
+        try {
+            if (isFinalDelivery) {
+                if (project.faseFacturacion === 'Preliminar' || project.faseFacturacion === 'Fase 2 Pendiente') {
+                    await updateDoc(projectRef, { estado: 'Archivado', estadoCliente: 'Terminado' });
+                } else {
+                    await updateDoc(projectRef, { estado: 'Pendiente de Factura', estadoCliente: 'Terminado' });
+                }
             } else {
-                await updateDoc(projectRef, { estado: 'Pendiente de Factura', estadoCliente: 'Terminado' });
+                await updateDoc(projectRef, { estado: 'Pendiente de Factura', faseFacturacion: 'Preliminar' });
             }
-        } else {
-            await updateDoc(projectRef, { estado: 'Pendiente de Factura', faseFacturacion: 'Preliminar' });
+        } catch (error) {
+            console.error("Error al aprobar proyecto:", error);
+            alert("Ocurrió un error al aprobar el proyecto.");
+        } finally {
+            setConfirmingAction(null); // Cierra el modal
+            onUpdateProject(); // Refresca la tabla
         }
-        setConfirmingAction(null);
-        onUpdateProject();
     };
 
+    // El handler de RECHAZO ahora solo necesita el 'motivo', ya que obtiene el ID del estado
     const handleReject = async (reason) => {
         if (!confirmingAction || confirmingAction.action !== 'reject') return;
-        const { projectId } = confirmingAction.payload;
-
-        if (reason && reason.trim() !== '') {
-            const { projectId } = confirmingAction.payload;
-            const projectRef = doc(db, "proyectos", projectId);
-            await updateDoc(projectRef, { estado: 'Terminado Internamente', motivoRechazo: reason });
-            onUpdateProject();
-        } else {
-            alert("El motivo del rechazo no puede estar vacío.");   
+        
+        if (!reason || reason.trim() === '') {
+            alert("El motivo del rechazo no puede estar vacío.");
+            return; // No cierra el modal para que el usuario pueda escribir el motivo.
         }
-        setConfirmingAction(null);
+
+        const { projectId } = confirmingAction.payload; // Se obtiene el ID del estado
+        const projectRef = doc(db, "proyectos", projectId);
+        
+        try {
+            await updateDoc(projectRef, { estado: 'Terminado Internamente', motivoRechazo: reason });
+        } catch (error) {
+            console.error("Error al rechazar proyecto:", error);
+            alert("Ocurrió un error al rechazar el proyecto.");
+        } finally {
+            setConfirmingAction(null); // Cierra el modal
+            onUpdateProject(); // Refresca la tabla
+        }
     };
 
+    // La función que abre el modal de aprobación ahora solo guarda los datos necesarios en el estado.
     const promptApprove = (project) => {
         const isFinalDelivery = !!project.urlDocumento2;
         const hasBeenBilled = project.faseFacturacion === 'Preliminar' || project.faseFacturacion === 'Fase 2 Pendiente';
         
-        let confirmationMessage = isFinalDelivery 
-            ? (hasBeenBilled ? "Aprobar y finalizar este proyecto? Se archivará (no se volverá a facturar)." : "Aprobar esta entrega final y enviarla a facturación?")
+        const confirmationMessage = isFinalDelivery 
+            ? (hasBeenBilled ? "Aprobar y finalizar este proyecto? Se archivará y no se volverá a facturar." : "Aprobar esta entrega final y enviarla a facturación?")
             : "Aprobar esta entrega preliminar y enviarla a facturación?";
         
         setConfirmingAction({
             action: 'approve',
-            payload: { project },
+            payload: { project }, // Guardamos el objeto de proyecto completo
             title: "Confirmar Aprobación",
             message: confirmationMessage,
-            onConfirm: () => handleApprove(project)
         });
     };
 
+    // La función que abre el modal de rechazo guarda solo el ID.
     const promptReject = (projectId) => {
         setConfirmingAction({
             action: 'reject',
-            payload: { projectId },
+            payload: { projectId }, // Guardamos el ID del proyecto
             title: "Rechazar Proyecto",
             message: "Por favor, introduce el motivo del rechazo para notificar al practicante.",
-            onConfirm: (reason) => handleReject(projectId, reason),
             confirmText: "Rechazar",
             confirmColor: "bg-orange-600"
         });
@@ -1185,6 +1201,7 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                     <div className="flex space-x-4">
+                                        {/* Los botones ahora llaman a las funciones 'prompt' correctas */}
                                         <button onClick={() => promptApprove(project)} className="text-green-600 hover:text-green-900">Aprobar</button>
                                         <button onClick={() => promptReject(project.id)} className="text-orange-600 hover:text-orange-900">Rechazar</button>
                                     </div>
@@ -1194,19 +1211,22 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
                     </tbody>
                 </table>
             </div>
-            {confirmingAction && confirmingAction.action === 'approve' && (
+
+            {/* El JSX para renderizar los modales ahora es más limpio y correcto. */}
+            {confirmingAction?.action === 'approve' && (
                 <ConfirmationModal 
                     title={confirmingAction.title}
                     message={confirmingAction.message}
-                    onConfirm={confirmingAction.onConfirm}
+                    onConfirm={handleApprove} // Llama directamente al handler de aprobación
                     onCancel={() => setConfirmingAction(null)}
                 />
             )}
-            {confirmingAction && confirmingAction.action === 'reject' && (
+            
+            {confirmingAction?.action === 'reject' && (
                 <ActionWithReasonModal 
                     title={confirmingAction.title}
                     message={confirmingAction.message}
-                    onConfirm={confirmingAction.onConfirm}
+                    onConfirm={handleReject} // Llama directamente al handler de rechazo, que recibirá 'reason'
                     onCancel={() => setConfirmingAction(null)}
                     confirmText={confirmingAction.confirmText}
                     confirmColor={confirmingAction.confirmColor}

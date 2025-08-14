@@ -33,6 +33,23 @@ import {
     getDownloadURL 
 } from 'firebase/storage';
 
+import { Bar } from 'react-chartjs-2';
+
+import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, LineElement, PointElement, LineController, Title, Tooltip, Legend, ArcElement } from 'chart.js';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  LineElement,
+  PointElement,
+  LineController, // <-- Añadir aquí
+  Title,
+  Tooltip,
+  Legend,
+  ArcElement
+);
+
 // --- INSTRUCCIONES DE CONFIGURACIÓN DE FIREBASE ---
 const firebaseConfig = {
   apiKey: "AIzaSyA7H6G0mXCy9DmoLg3fSW3TrxIRcEzz9jg",
@@ -1340,8 +1357,455 @@ const ClientDashboard = ({ user, userData }) => {
     );
 };
 
-// ... (Resto de los dashboards esqueleto)
-const DirectivoDashboard = () => <div><h2 className="text-2xl font-bold">Dashboard de Directivos</h2><p>Próximamente: Gráficas y reportes.</p></div>;
+/**
+ * Componente para renderizar la gráfica de Pipeline de Proyectos.
+ * Recibe los datos ya procesados y listos para mostrar.
+ */
+const PipelineChart = ({ chartData }) => {
+    const data = {
+        labels: chartData.labels,
+        datasets: [
+            {
+                label: 'Valor en Cotización',
+                data: chartData.cotizacionData,
+                backgroundColor: 'rgba(255, 159, 64, 0.7)', // Naranja
+            },
+            {
+                label: 'Valor Activo',
+                data: chartData.activoData,
+                backgroundColor: 'rgba(54, 162, 235, 0.7)', // Azul
+            },
+            {
+                label: 'Valor Pdto. Factura',
+                data: chartData.pendienteFacturaData,
+                backgroundColor: 'rgba(255, 206, 86, 0.7)', // Amarillo
+            },
+            {
+                type: 'line', // Este dataset es una línea
+                label: 'Valor Total Ofertado',
+                data: chartData.totalData,
+                borderColor: 'rgba(75, 192, 192, 1)', // Verde-azulado
+                backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                fill: true,
+                tension: 0.2,
+                yAxisID: 'y1',
+            }
+        ]
+    };
+
+    const options = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            title: {
+                display: false,
+            },
+            tooltip: {
+                mode: 'index',
+                intersect: false,
+            },
+            legend: {
+                position: 'bottom',
+            }
+        },
+        scales: {
+            x: {
+                stacked: true,
+            },
+            y: {
+                stacked: true,
+                beginAtZero: true
+            },
+            y1: {
+                position: 'right',
+                grid: {
+                    drawOnChartArea: false,
+                },
+                beginAtZero: true,
+            }
+        },
+    };
+
+    return <Bar options={options} data={data} />;
+};
+
+/**
+ * Componente para la gráfica de Salud de Cuentas por Cobrar.
+ */
+const AccountsReceivableChart = ({ chartData }) => {
+    const data = {
+        labels: chartData.labels,
+        datasets: [
+            {
+                label: 'Pagado',
+                data: chartData.pagadoData,
+                backgroundColor: 'rgba(75, 192, 192, 0.7)', // Verde
+            },
+            {
+                label: 'Programado a Pago',
+                data: chartData.programadoData,
+                backgroundColor: 'rgba(54, 162, 235, 0.7)', // Azul
+            },
+            {
+                label: 'Vence Hoy',
+                data: chartData.venceHoyData,
+                backgroundColor: 'rgba(255, 159, 64, 0.7)', // Naranja
+            },
+            {
+                label: 'Vencido',
+                data: chartData.vencidoData,
+                backgroundColor: 'rgba(255, 99, 132, 0.7)', // Rojo
+            },
+            {
+                label: 'Pdte. de Programación',
+                data: chartData.pdteProgramacionData,
+                backgroundColor: 'rgba(201, 203, 207, 0.7)', // Gris
+            },
+            {
+                type: 'line',
+                label: 'Total Facturado',
+                data: chartData.totalFacturadoData,
+                borderColor: '#36A2EB',
+                tension: 0.2,
+                yAxisID: 'y1',
+            }
+        ]
+    };
+
+    const options = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            title: { display: false },
+            tooltip: { mode: 'index', intersect: false },
+            legend: { position: 'bottom' }
+        },
+        scales: {
+            x: { stacked: true },
+            y: { stacked: true, beginAtZero: true },
+            y1: {
+                position: 'right',
+                grid: { drawOnChartArea: false },
+                beginAtZero: true,
+            }
+        },
+    };
+
+    return <Bar options={options} data={data} />;
+};
+
+/**
+ * Componente para la gráfica de Flujo de Caja Proyectado (Semanal).
+ */
+const CashFlowChart = ({ chartData }) => {
+    const data = {
+        labels: chartData.labels,
+        datasets: [
+            {
+                label: 'Ingresos Programados',
+                data: chartData.ingresosData,
+                borderColor: 'rgb(54, 162, 235)',
+                backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                type: 'bar', // Barras para ingresos
+            },
+            {
+                label: 'Egresos Programados',
+                data: chartData.egresosData,
+                borderColor: 'rgb(255, 99, 132)',
+                backgroundColor: 'rgba(255, 99, 132, 0.5)',
+                type: 'bar', // Barras para egresos
+            }
+        ]
+    };
+
+    const options = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            title: { display: false },
+            legend: { position: 'bottom' }
+        },
+        scales: {
+            y: { beginAtZero: true }
+        }
+    };
+
+    return <Bar options={options} data={data} />;
+};
+
+//Componente para la gráfica de Productividad por Técnico. 
+const TechnicianProductivityChart = ({ chartData }) => {
+    const data = {
+        labels: chartData.labels, // Nombres de los técnicos
+        datasets: [
+            {
+                label: 'Proyectos Entregados (Mes Actual)',
+                data: chartData.completedData, // Cantidad de proyectos
+                backgroundColor: 'rgba(153, 102, 255, 0.7)', // Morado
+                borderColor: 'rgba(153, 102, 255, 1)',
+                borderWidth: 1,
+            },
+        ],
+    };
+
+    const options = {
+        indexAxis: 'y', // Hace que la gráfica sea horizontal
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: false, // No es necesaria con una sola barra
+            },
+            title: {
+                display: false,
+            },
+        },
+        scales: {
+            x: {
+                beginAtZero: true,
+                ticks: {
+                    // Asegura que solo se muestren números enteros en el eje
+                    stepSize: 1,
+                }
+            }
+        }
+    };
+
+    return <Bar options={options} data={data} />;
+};
+
+//Muestra un indicador clave de rendimiento (KPI) en un widget.
+const KPIWidget = ({ title, value, unit = '', trend = null }) => {
+    return (
+        <div className="bg-white p-5 rounded-xl shadow-md">
+            <h3 className="font-bold text-gray-500 truncate">{title}</h3>
+            <p className="text-3xl font-bold mt-2">
+                {value}
+                <span className="text-xl font-semibold ml-1">{unit}</span>
+            </p>
+            {/* Próximamente se podría añadir un indicador de tendencia */}
+        </div>
+    );
+};
+
+// --- Reemplazar el componente DirectivoDashboard existente por completo ---
+const DirectivoDashboard = () => {
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [dashboardData, setDashboardData] = useState(null);
+
+    /**
+     * Procesa los datos crudos de Firestore para generar las métricas del dashboard.
+     * @param {Array} projects - Array de todos los proyectos.
+     * @param {Array} invoices - Array de todas las facturas.
+     * @returns {Object} - Objeto con los datos procesados para las gráficas.
+     */
+// --- Reemplazar la función processDataForDashboard completa ---
+
+    const processDataForDashboard = (projects, invoices, technicians) => {
+        const currentYear = new Date().getFullYear();
+        const currentMonth = new Date().getMonth();
+        const labels = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const oneDay = 1000 * 60 * 60 * 24;
+
+        // --- Lógica de Gráficas (sin cambios) ---
+        const monthlyProjectsData = Array(12).fill(0).map(() => ({ cotizacion: 0, activo: 0, pendienteFactura: 0, total: 0 }));
+        projects.forEach(p => {
+            if (p.fechaApertura?.toDate && p.fechaApertura.toDate().getFullYear() === currentYear) {
+                const month = p.fechaApertura.toDate().getMonth();
+                const projectValue = p.precioCotizacionCliente || 0;
+                monthlyProjectsData[month].total += projectValue;
+                switch (p.estado) {
+                    case 'Cotización': monthlyProjectsData[month].cotizacion += projectValue; break;
+                    case 'Activo': case 'Terminado Internamente': case 'En Revisión Final': monthlyProjectsData[month].activo += projectValue; break;
+                    case 'Pendiente de Factura': monthlyProjectsData[month].pendienteFactura += projectValue; break;
+                    default: break;
+                }
+            }
+        });
+
+        const monthlyARData = Array(12).fill(0).map(() => ({ totalFacturado: 0, pdteProgramacion: 0, programado: 0, venceHoy: 0, vencido: 0, pagado: 0 }));
+        invoices.forEach(inv => {
+            if (inv.tipo === 'cliente' && inv.fechaEmision?.toDate && inv.fechaEmision.toDate().getFullYear() === currentYear) {
+                const month = inv.fechaEmision.toDate().getMonth();
+                const invoiceValue = inv.monto || 0;
+                monthlyARData[month].totalFacturado += invoiceValue;
+                if (inv.estado === 'Pagada') { monthlyARData[month].pagado += invoiceValue; }
+                else if (inv.estado === 'Pendiente') {
+                    if (inv.fechaPromesaPago?.toDate) {
+                        const promiseDate = inv.fechaPromesaPago.toDate();
+                        promiseDate.setHours(0, 0, 0, 0);
+                        if (promiseDate < today) { monthlyARData[month].vencido += invoiceValue; }
+                        else if (promiseDate.getTime() === today.getTime()) { monthlyARData[month].venceHoy += invoiceValue; }
+                        else { monthlyARData[month].programado += invoiceValue; }
+                    } else { monthlyARData[month].pdteProgramacion += invoiceValue; }
+                }
+            }
+        });
+
+        const weeklyCashFlowData = Array(8).fill(0).map(() => ({ ingresos: 0, egresos: 0 }));
+        const weeklyLabels = [];
+        const todayForWeeks = new Date();
+        for (let i = 0; i < 8; i++) {
+            const weekStartDate = new Date(todayForWeeks.getTime() + (i * 7 * oneDay));
+            weeklyLabels.push(`Sem ${i + 1} (${weekStartDate.getDate()}/${weekStartDate.getMonth() + 1})`);
+        }
+        invoices.forEach(inv => {
+            if (inv.estado === 'Pendiente' && inv.fechaPromesaPago?.toDate) {
+                const promiseDate = inv.fechaPromesaPago.toDate();
+                const diffDays = Math.floor((promiseDate - todayForWeeks) / oneDay);
+                const weekIndex = Math.floor(diffDays / 7);
+                if (weekIndex >= 0 && weekIndex < 8) {
+                    if (inv.tipo === 'cliente') { weeklyCashFlowData[weekIndex].ingresos += inv.monto || 0; }
+                    else if (inv.tipo === 'proveedor') { weeklyCashFlowData[weekIndex].egresos += inv.monto || 0; }
+                }
+            }
+        });
+
+        const techProductivity = {};
+        technicians.forEach(t => { techProductivity[t.id] = { name: t.nombreCompleto.split(' ')[0], completed: 0 }; });
+        projects.forEach(p => {
+            [p.fechaFinTecnico1, p.fechaFinTecnico2].filter(Boolean).forEach(timestamp => {
+                const completionDate = timestamp.toDate();
+                if (completionDate.getMonth() === currentMonth && completionDate.getFullYear() === currentYear) {
+                    (p.asignadoTecnicosIds || []).forEach(techId => {
+                        if (techProductivity[techId]) { techProductivity[techId].completed += 1; }
+                    });
+                }
+            });
+        });
+
+        // --- Nueva Lógica para los KPIs Principales ---
+        let totalMargin = 0, projectsWithFinancials = 0;
+        let totalDeliveryDays = 0, completedProjects = 0;
+        let totalActivationDays = 0, activatedProjects = 0;
+
+        projects.forEach(p => {
+            // Margen de beneficio
+            if ((p.precioCotizacionCliente || 0) > 0 && (p.costoProveedor || 0) >= 0) {
+                totalMargin += (p.precioCotizacionCliente - p.costoProveedor) / p.precioCotizacionCliente;
+                projectsWithFinancials++;
+            }
+            // Tiempo de entrega
+            if (p.fechaAsignacionTecnico?.toDate && p.fechaFinTecnico1?.toDate) {
+                totalDeliveryDays += (p.fechaFinTecnico1.toDate() - p.fechaAsignacionTecnico.toDate()) / oneDay;
+                completedProjects++;
+            }
+            // Tiempo de activación
+            if (p.fechaApertura?.toDate && p.fechaAsignacionTecnico?.toDate) {
+                totalActivationDays += (p.fechaAsignacionTecnico.toDate() - p.fechaApertura.toDate()) / oneDay;
+                activatedProjects++;
+            }
+        });
+
+        const kpis = {
+            avgMargin: projectsWithFinancials > 0 ? ((totalMargin / projectsWithFinancials) * 100).toFixed(1) : 0,
+            avgDeliveryDays: completedProjects > 0 ? (totalDeliveryDays / completedProjects).toFixed(1) : 0,
+            avgActivationDays: activatedProjects > 0 ? (totalActivationDays / activatedProjects).toFixed(1) : 0,
+            invoicedThisMonth: (monthlyARData[currentMonth].totalFacturado).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })
+        };
+
+        return {
+            kpis,
+            pipeline: { labels, cotizacionData: monthlyProjectsData.map(m => m.cotizacion), activoData: monthlyProjectsData.map(m => m.activo), pendienteFacturaData: monthlyProjectsData.map(m => m.pendienteFactura), totalData: monthlyProjectsData.map(m => m.total) },
+            accountsReceivable: { labels, totalFacturadoData: monthlyARData.map(m => m.totalFacturado), pagadoData: monthlyARData.map(m => m.pagado), programadoData: monthlyARData.map(m => m.programado), venceHoyData: monthlyARData.map(m => m.venceHoy), vencidoData: monthlyARData.map(m => m.vencido), pdteProgramacionData: monthlyARData.map(m => m.pdteProgramacion) },
+            cashFlow: { labels: weeklyLabels, ingresosData: weeklyCashFlowData.map(w => w.ingresos), egresosData: weeklyCashFlowData.map(w => w.egresos) },
+            technicianProductivity: { labels: Object.values(techProductivity).map(t => t.name), completedData: Object.values(techProductivity).map(t => t.completed) }
+        };
+    };
+
+    useEffect(() => {
+        const fetchData = async () => {
+            try {
+                // Añadimos una tercera consulta para obtener los técnicos
+                const projectsQuery = query(collection(db, "proyectos"));
+                const invoicesQuery = query(collection(db, "facturas"));
+                const techniciansQuery = query(collection(db, "usuarios"), where("rol", "==", "tecnico"));
+
+                const [projectsSnapshot, invoicesSnapshot, techniciansSnapshot] = await Promise.all([
+                    getDocs(projectsQuery),
+                    getDocs(invoicesQuery),
+                    getDocs(techniciansQuery) // Ejecutamos la nueva consulta
+                ]);
+
+                const allProjects = projectsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                const allInvoices = invoicesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                const allTechnicians = techniciansSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                
+                // Pasamos los técnicos a la función de procesamiento
+                const processedData = processDataForDashboard(allProjects, allInvoices, allTechnicians);
+                setDashboardData(processedData);
+
+            } catch (err) {
+                console.error("Error al obtener datos para el dashboard directivo:", err);
+                setError("No se pudieron cargar las métricas.");
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchData();
+    }, []);
+
+    if (loading) {
+        return <div className="text-center py-10">Calculando métricas... ⚙️</div>;
+    }
+
+    if (error) {
+        return <div className="text-center py-10 text-red-600">{error}</div>;
+    }
+
+// --- Reemplazar solo la sección de return dentro de DirectivoDashboard ---
+
+    return (
+        <div className="space-y-8">
+            <div>
+                <h1 className="text-3xl font-bold text-gray-900">Dashboard Directivo</h1>
+                <p className="text-gray-600">Vista general de la salud y rendimiento del negocio.</p>
+            </div>
+
+            {/* Fila de KPIs Principales (Widgets) */}
+            {dashboardData?.kpis && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+                    <KPIWidget title="Margen Promedio" value={dashboardData.kpis.avgMargin} unit="%" />
+                    <KPIWidget title="Tiempo Prom. Entrega" value={dashboardData.kpis.avgDeliveryDays} unit="días" />
+                    <KPIWidget title="Tiempo Prom. Activación" value={dashboardData.kpis.avgActivationDays} unit="días" />
+                    <KPIWidget title="Facturado (Mes Actual)" value={dashboardData.kpis.invoicedThisMonth} />
+                </div>
+            )}
+
+            {/* Sección de Gráficas */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="bg-white p-6 rounded-xl shadow-md">
+                    <h3 className="font-bold text-lg mb-4">Pipeline de Proyectos (Mensual)</h3>
+                    <div className="h-80">
+                        {dashboardData?.pipeline && <PipelineChart chartData={dashboardData.pipeline} />}
+                    </div>
+                </div>
+                <div className="bg-white p-6 rounded-xl shadow-md">
+                    <h3 className="font-bold text-lg mb-4">Salud de Cuentas por Cobrar (Mensual)</h3>
+                    <div className="h-80">
+                        {dashboardData?.accountsReceivable && <AccountsReceivableChart chartData={dashboardData.accountsReceivable} />}
+                    </div>
+                </div>
+                <div className="bg-white p-6 rounded-xl shadow-md">
+                    <h3 className="font-bold text-lg mb-4">Flujo de Caja Proyectado (Próximas 8 Semanas)</h3>
+                    <div className="h-80">
+                        {dashboardData?.cashFlow && <CashFlowChart chartData={dashboardData.cashFlow} />}
+                    </div>
+                </div>
+                <div className="bg-white p-6 rounded-xl shadow-md">
+                    <h3 className="font-bold text-lg mb-4">Productividad por Técnico (Mes Actual)</h3>
+                    <div className="h-80">
+                        {dashboardData?.technicianProductivity && <TechnicianProductivityChart chartData={dashboardData.technicianProductivity} />}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 // **CÓDIGO CORREGIDO PARA EcotechDashboard**
 const EcotechDashboard = () => {

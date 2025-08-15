@@ -1388,10 +1388,8 @@ const ClientDashboard = ({ user, userData }) => {
     );
 };
 
-/**
- * Componente para renderizar la gráfica de Pipeline de Proyectos.
- * Recibe los datos ya procesados y listos para mostrar.
- */
+ //Componente para renderizar la gráfica de Pipeline de Proyectos.
+ //Recibe los datos ya procesados y listos para mostrar.
 const PipelineChart = ({ chartData }) => {
     const data = {
         labels: chartData.labels,

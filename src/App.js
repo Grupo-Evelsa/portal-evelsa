@@ -246,7 +246,6 @@ const ProjectLogModal = ({ project, user, userData, onClose }) => {
 };
 
 // --- Componentes de Gestión (Para Administradores) ---
-
 const UserManagement = ({ onUserAdded }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -847,9 +846,14 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
         );
     };
     
+    // --- Reemplazar el componente AssignProjectModal existente ---
+
     const AssignProjectModal = ({ project, onClose, onFinalized }) => {
         const [technicians, setTechnicians] = useState([]);
-        const [selectedTechnicians, setSelectedTechnicians] = useState(project.asignadoTecnicosIds || []);
+        // CAMBIO 1: El estado ahora guarda un solo ID, no un array.
+        const [selectedTechnicianId, setSelectedTechnicianId] = useState(
+            (project.asignadoTecnicosIds && project.asignadoTecnicosIds[0]) || ''
+        );
         const [deliveryDate, setDeliveryDate] = useState(project.fechaEntregaInterna ? project.fechaEntregaInterna.toDate().toISOString().split('T')[0] : '');
         const [loading, setLoading] = useState(false);
 
@@ -862,23 +866,20 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
             fetchTechnicians();
         }, []);
 
-        const handleCheckboxChange = (techId) => {
-            setSelectedTechnicians(prev => 
-                prev.includes(techId) ? prev.filter(id => id !== techId) : [...prev, techId]
-            );
-        };
-
         const handleSave = async () => {
+            if (!selectedTechnicianId) {
+                alert("Debes seleccionar un técnico.");
+                return;
+            }
             setLoading(true);
             const projectRef = doc(db, "proyectos", project.id);
             
+            // CAMBIO 2: La lógica ahora se basa en el único técnico seleccionado.
             const tecnicosStatus = {};
-            selectedTechnicians.forEach(techId => {
-                tecnicosStatus[techId] = project.tecnicosStatus?.[techId] || "No Visto";
-            });
+            tecnicosStatus[selectedTechnicianId] = project.tecnicosStatus?.[selectedTechnicianId] || "No Visto";
 
             await updateDoc(projectRef, {
-                asignadoTecnicosIds: selectedTechnicians,
+                asignadoTecnicosIds: [selectedTechnicianId], // Guardamos como un array con un solo elemento
                 tecnicosStatus: tecnicosStatus,
                 fechaAsignacionTecnico: Timestamp.now(),
                 fechaEntregaInterna: deliveryDate ? Timestamp.fromDate(new Date(deliveryDate)) : null
@@ -894,16 +895,19 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
                     <h3 className="text-lg font-bold mb-4">Asignar Proyecto: {project.npu}</h3>
                     <div className="space-y-4">
                         <div>
-                            <label className="block text-sm font-medium text-gray-700">Técnicos Disponibles</label>
+                            <label className="block text-sm font-medium text-gray-700">Técnico Asignado</label>
                             <div className="mt-2 max-h-48 overflow-y-auto border rounded-md p-2">
                                 {technicians.map(tech => (
                                     <div key={tech.id} className="flex items-center">
-                                        <input 
-                                            type="checkbox" 
-                                            id={tech.id} 
-                                            checked={selectedTechnicians.includes(tech.id)}
-                                            onChange={() => handleCheckboxChange(tech.id)}
-                                            className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                        {/* CAMBIO 3: Usamos input de tipo "radio" */}
+                                        <input
+                                            type="radio"
+                                            name="technician"
+                                            id={tech.id}
+                                            value={tech.id}
+                                            checked={selectedTechnicianId === tech.id}
+                                            onChange={(e) => setSelectedTechnicianId(e.target.value)}
+                                            className="h-4 w-4 border-gray-300 text-indigo-600 focus:ring-indigo-500"
                                         />
                                         <label htmlFor={tech.id} className="ml-3 text-sm text-gray-700">{tech.nombreCompleto}</label>
                                     </div>
@@ -935,10 +939,12 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
 
     const paginate = (pageNumber) => setCurrentPage(pageNumber);
     // **FUNCIÓN CORREGIDA PARA MANEJAR ZONAS HORARIAS**
+    // --- Reemplazar la función formatDate existente ---
     const formatDate = (timestamp) => {
         if (!timestamp) return '---';
         const date = timestamp.toDate();
-        // Ajuste para corregir el desfase de la zona horaria
+        // CORRECCIÓN: Se obtiene el desfase de la zona horaria del navegador y se ajusta la fecha.
+        // Esto asegura que "15 de Octubre" se muestre como "15 de Octubre" sin importar la zona horaria.
         const userTimezoneOffset = date.getTimezoneOffset() * 60000;
         const adjustedDate = new Date(date.getTime() + userTimezoneOffset);
         return adjustedDate.toLocaleDateString('es-MX', {
@@ -2203,6 +2209,8 @@ const TecnicoProjectsTable = ({ projects, onUpdateProject, user, userData, handl
             }
         };
 
+        // --- Reemplazar la función generateAndSaveNota existente ---
+
         const generateAndSaveNota = async () => {
             if (typeof window.jspdf === 'undefined') {
                 throw new Error("La librería para generar PDFs (jsPDF) no se ha cargado.");
@@ -2211,6 +2219,7 @@ const TecnicoProjectsTable = ({ projects, onUpdateProject, user, userData, handl
             const pdfDoc = new jsPDF();
             const anioActual = new Date().getFullYear();
             const contadorRef = doc(db, "contadores", `notas_entrega_${anioActual}`);
+            
             const nuevoConsecutivo = await runTransaction(db, async (transaction) => {
                 const contadorDoc = await transaction.get(contadorRef);
                 const nuevoValor = (contadorDoc.exists() ? contadorDoc.data().consecutivo : 0) + 1;
@@ -2219,6 +2228,24 @@ const TecnicoProjectsTable = ({ projects, onUpdateProject, user, userData, handl
             });
             const numeroNota = `${anioActual}-${nuevoConsecutivo.toString().padStart(4, '0')}`;
 
+            // --- INICIO DE CÓDIGO AÑADIDO PARA EL LOGO ---
+            const logoUrl = "https://www.grupoevelsa.com/assets/images/Logo Evelsa 2.png";
+            // Para evitar problemas de CORS, convertimos la imagen a base64
+            const response = await fetch(logoUrl);
+            const blob = await response.blob();
+            const reader = new FileReader();
+            await new Promise((resolve, reject) => {
+                reader.onload = resolve;
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+            const logoBase64 = reader.result;
+            
+            // Añadimos la imagen al PDF (posición x, y, ancho, alto)
+            pdfDoc.addImage(logoBase64, 'PNG', 15, 15, 50, 15);
+            // --- FIN DE CÓDIGO AÑADIDO PARA EL LOGO ---
+
+            // Ajustamos la posición del texto para que no se encime con el logo
             pdfDoc.setFont("helvetica", "bold");
             pdfDoc.setFontSize(10);
             pdfDoc.text("ECOLOGÍA Y ASESORÍA AMBIENTAL S. DE R.L. DE C.V.", 105, 20, { align: 'center' });
@@ -2230,6 +2257,8 @@ const TecnicoProjectsTable = ({ projects, onUpdateProject, user, userData, handl
             pdfDoc.setFont("helvetica", "bold");
             pdfDoc.text("NOTA DE ENTREGA", 105, 45, { align: 'center' });
             pdfDoc.text(numeroNota, 180, 55);
+            
+            // Resto del código del PDF sin cambios...
             pdfDoc.setFontSize(11);
             pdfDoc.setFont("helvetica", "normal");
             pdfDoc.text(`FECHA: ${new Date().toLocaleDateString('es-MX')}`, 20, 65);
@@ -3078,6 +3107,7 @@ const PracticanteDashboard = () => {
             message: "¿Estás seguro de que todos los documentos están listos y quieres enviar este proyecto a revisión final?",
             onConfirm: () => handleSendToReview(projectId)
         });
+        setConfirmingAction(null); // Cierra el modal
     };
 
     return (

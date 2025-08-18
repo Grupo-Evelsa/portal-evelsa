@@ -88,7 +88,56 @@ async function getUsersDataByRole(role) {
   return usersSnapshot.docs.map((doc) => doc.data());
 }
 
+// --- NUEVAS FUNCIONES AUXILIARES PARA GESTIÓN DE ARCHIVOS ---
 
+/**
+ * Borra un archivo en Cloud Storage a partir de su URL de descarga.
+ * @param {string} fileUrl La URL completa del archivo a borrar.
+ */
+async function deleteFileFromUrl(fileUrl) {
+  if (!fileUrl || !fileUrl.includes("firebasestorage.googleapis.com")) {
+    log("URL de archivo inválida o vacía, no se puede borrar:", fileUrl);
+    return;
+  }
+  try {
+    const bucket = admin.storage().bucket();
+    // Extraemos la ruta del archivo desde la URL
+    const decodedUrl = decodeURIComponent(fileUrl);
+    const filePath = decodedUrl.split("/o/")[1].split("?")[0];
+
+    await bucket.file(filePath).delete();
+    log(`Archivo borrado exitosamente: ${filePath}`);
+  } catch (err) {
+    // Si el archivo ya no existe, no lo tratamos como un error crítico.
+    if (err.code === 404) {
+      log(`El archivo no se encontró (probablemente ya fue borrado):
+         ${fileUrl}`);
+    } else {
+      error(`Error al borrar el archivo ${fileUrl}:`, err);
+    }
+  }
+}
+
+/**
+ * Cambia la clase de almacenamiento de un archivo a COLDLINE.
+ * @param {string} fileUrl La URL completa del archivo a archivar.
+ */
+async function archiveFileToColdline(fileUrl) {
+  if (!fileUrl || !fileUrl.includes("firebasestorage.googleapis.com")) {
+    log("URL de archivo inválida o vacía, no se puede archivar:", fileUrl);
+    return;
+  }
+  try {
+    const bucket = admin.storage().bucket();
+    const decodedUrl = decodeURIComponent(fileUrl);
+    const filePath = decodedUrl.split("/o/")[1].split("?")[0];
+
+    await bucket.file(filePath).setStorageClass("COLDLINE");
+    log(`Archivo archivado a COLDLINE: ${filePath}`);
+  } catch (err) {
+    error(`Error al archivar el archivo ${fileUrl}:`, err);
+  }
+}
 // --- LÓGICA DE NOTIFICACIONES ACTUALIZADA ---
 
 exports.notifyNewLogEntry = onDocumentCreated("bitacoras_proyectos/{logId}",
@@ -212,4 +261,38 @@ exports.notifyProjectUpdate = onDocumentUpdated("proyectos/{projectId}",
           `*${afterData.npu}* (${afterData.servicioNombre}).`;
         await notifyUsers(newTechs, message);
       }
+
+      // A. Borrar evidencia del técnico cuando el Admin aprueba
+      if (
+        beforeData.estado === "En Revisión Final" &&
+        (afterData.estado === "Pendiente de Factura" ||
+           afterData.estado === "Archivado")
+      ) {
+        log(`Proyecto ${afterData.npu} aprobado.
+           Borrando evidencias de técnico.`);
+        // Borramos ambas posibles evidencias
+        if (afterData.urlEvidenciaTecnico1) {
+          await deleteFileFromUrl(afterData.urlEvidenciaTecnico1);
+        }
+        if (afterData.urlEvidenciaTecnico2) {
+          await deleteFileFromUrl(afterData.urlEvidenciaTecnico2);
+        }
+      }
+
+      // B. Archivar documentos iniciales cuando el proyecto se factura
+      if (beforeData.estado !== "Facturado" &&
+         afterData.estado === "Facturado") {
+        log(`Proyecto ${afterData.npu}
+           facturado. Archivando documentos iniciales.`);
+        const filesToArchive = [
+          afterData.urlCotizacionCliente,
+          afterData.urlPOCliente,
+          afterData.urlCotizacionProveedor,
+          afterData.urlPOProveedor,
+        ];
+        for (const fileUrl of filesToArchive) {
+          await archiveFileToColdline(fileUrl);
+        }
+      }
     });
+

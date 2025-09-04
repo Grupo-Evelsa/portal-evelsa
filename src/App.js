@@ -1,3 +1,6 @@
+// Aquí importo todo lo que necesito de React y Firebase para que la app funcione.
+// También configuro la conexión a mi proyecto de Firebase con mis credenciales.
+
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -37,20 +40,22 @@ import { Bar } from 'react-chartjs-2';
 
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, LineElement, PointElement, LineController, Title, Tooltip, Legend, ArcElement } from 'chart.js';
 
+
+// Registro los componentes de Chart.js para poder usar las gráficas.
 ChartJS.register(
   CategoryScale,
   LinearScale,
   BarElement,
   LineElement,
   PointElement,
-  LineController, // <-- Añadir aquí
+  LineController, 
   Title,
   Tooltip,
   Legend,
   ArcElement
 );
 
-// --- INSTRUCCIONES DE CONFIGURACIÓN DE FIREBASE ---
+// Mis credenciales de Firebase para conectar el frontend con el backend.
 const firebaseConfig = {
   apiKey: "AIzaSyA7H6G0mXCy9DmoLg3fSW3TrxIRcEzz9jg",
   authDomain: "portal-evelsa.firebaseapp.com",
@@ -60,13 +65,13 @@ const firebaseConfig = {
   appId: "1:847174487471:web:c3a57fd8315ce619a2335a"
 };
 
-// --- Inicialización de Firebase ---
+// Inicializo Firebase para poder usar la base de datos, autenticación, etc.
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const storage = getStorage(app);
 
-// --- Componentes Reutilizables ---
+// Mi componente de Alerta para mostrar mensajes de éxito o error.
 const Alert = ({ message, type, onClose }) => {
     if (!message) return null;
     const baseClasses = "p-4 mb-4 text-sm rounded-lg relative";
@@ -79,7 +84,7 @@ const Alert = ({ message, type, onClose }) => {
     );
 };
 
-// **COMPONENTE REUTILIZABLE PARA CONFIRMACIONES SIMPLES**
+// Mi modal de confirmación genérico para acciones simples (ej. "¿Estás seguro?").
 const ConfirmationModal = ({ title, message, onConfirm, onCancel, confirmText = "Confirmar", cancelText = "Cancelar", confirmColor = "bg-green-600" }) => {
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
@@ -95,7 +100,7 @@ const ConfirmationModal = ({ title, message, onConfirm, onCancel, confirmText = 
     );
 };
 
-// **COMPONENTE REUTILIZABLE PARA ACCIONES CON MOTIVO**
+// Mi modal para acciones que necesitan una razón por escrito (ej. rechazar un proyecto).
 const ActionWithReasonModal = ({ title, message, onConfirm, onCancel, confirmText = "Confirmar", cancelText = "Cancelar", confirmColor = "bg-orange-600" }) => {
     const [reason, setReason] = useState('');
     return (
@@ -119,14 +124,13 @@ const ActionWithReasonModal = ({ title, message, onConfirm, onCancel, confirmTex
     );
 };
 
-// --- COMPONENTE DE CABECERA ---
+
 const Header = ({ user, userData }) => {
     const logoGrupoEvelsa = "https://www.grupoevelsa.com/assets/images/Logo Evelsa 2.png";
     return (
         <header className="bg-white shadow-md sticky top-0 z-40">
             <div className="max-w-7xl mx-auto py-3 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
                 <div className="flex items-center">
-                    {/* Esta es la lógica corregida */}
                     {userData && userData.rol === 'cliente' && userData.logoUrl ? (
                         <img src={userData.logoUrl} onError={(e)=>{e.target.onerror = null; e.target.src="https://placehold.co/150x50/FFFFFF/000000?text=Logo+Cliente"}} alt="Logo Cliente" className="h-12 w-auto mr-4 object-contain"/>
                     ) : (
@@ -154,7 +158,7 @@ const ProjectLogModal = ({ project, user, userData, onClose }) => {
     const [newNote, setNewNote] = useState('');
     const [newFile, setNewFile] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [submitting, setSubmitting] = useState(false); // Estado para el botón de guardar
+    const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
 
     useEffect(() => {
@@ -198,7 +202,6 @@ const ProjectLogModal = ({ project, user, userData, onClose }) => {
 
             setNewNote('');
             setNewFile(null);
-            // Limpiar el input de archivo
             const fileInput = document.getElementById(`file-input-${project.id}`);
             if(fileInput) fileInput.value = "";
 
@@ -206,7 +209,7 @@ const ProjectLogModal = ({ project, user, userData, onClose }) => {
             console.error("Error al guardar en bitácora:", err);
             setError("No se pudo guardar la nota. Por favor, intente de nuevo.");
         } finally {
-            setSubmitting(false); // Esto asegura que el botón se reactive siempre
+            setSubmitting(false);
         }
     };
 
@@ -415,8 +418,6 @@ const DataManagement = ({ collectionName, title, fields, placeholderTexts }) => 
     );
 };
 
-// --- Dashboards Esqueleto para cada Rol ---
-
 // **CÓDIGO ACTUALIZADO PARA AdminDashboard (FASE 2.2)**
 const AdminDashboard = () => {
     const [view, setView] = useState('projects');
@@ -424,23 +425,19 @@ const AdminDashboard = () => {
     const [reviewProjects, setReviewProjects] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    // Esta función unificada se encarga de recargar los datos necesarios
     const refreshData = () => {
         setLoading(true);
-        // Carga todos los proyectos para la vista principal
         const qProjects = query(collection(db, "proyectos"), orderBy("fechaApertura", "desc"));
         const unsubscribeProjects = onSnapshot(qProjects, (querySnapshot) => {
             setProjects(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-            setLoading(false); // La carga principal termina aquí
+            setLoading(false); 
         });
         
-        // Carga solo los proyectos en revisión para el contador de la pestaña
         const qReview = query(collection(db, "proyectos"), where("estado", "==", "En Revisión Final"));
         const unsubscribeReview = onSnapshot(qReview, (querySnapshot) => {
             setReviewProjects(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         });
-        
-        // Devuelve una función para limpiar ambos listeners al desmontar el componente
+    
         return () => {
             unsubscribeProjects();
             unsubscribeReview();
@@ -490,7 +487,7 @@ const AdminDashboard = () => {
     );
 };
 
-// --- Componentes para la Vista de Cliente ---
+// El visor de documentos de Heyzine que uso en el dashboard del cliente.
 const HeyzineViewerModal = ({ url, onClose }) => {
     return (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50">
@@ -514,7 +511,6 @@ const ProjectsShelf = ({ projects, onOpenModal }) => {
     return (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-8">
             {finishedProjects.map(project => (
-                // CORRECCIÓN 2: El onClick ahora usa 'project.urlHeyzine'
                 <button key={project.id} className="group text-left focus:outline-none" onClick={() => onOpenModal(project.urlHeyzine)}>
                     <div className="relative pt-[141%] bg-gray-200 rounded-lg shadow-lg group-hover:shadow-2xl transition-all duration-300 transform group-hover:-translate-y-1 overflow-hidden">
                         <img src={coverTemplateUrl} alt="Portada de proyecto" className="absolute inset-0 w-full h-full object-cover"/>
@@ -555,7 +551,6 @@ const NewProjectForm = ({ onProjectAdded }) => {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
-    // **LÓGICA MEJORADA**: La comparación ahora es más robusta y flexible
     const isInternalProvider = collections.proveedores.find(p => p.id === formData.proveedorId)?.nombre.toLowerCase().trim() === "ecologia y asesoria ambiental";
 
     useEffect(() => {
@@ -751,7 +746,7 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
     const [itemsPerPage, setItemsPerPage] = useState(10);
     const [techniciansMap, setTechniciansMap] = useState({});
     const [invoicesMap, setInvoicesMap] = useState({});
-    const [confirmingAction, setConfirmingAction] = useState(null); // Estado para confirmaciones
+    const [confirmingAction, setConfirmingAction] = useState(null);
 
 
     useEffect(() => {
@@ -846,7 +841,6 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
         );
     };
     
-    // --- Reemplazar el componente AssignProjectModal existente ---
 
     const AssignProjectModal = ({ project, onClose, onFinalized }) => {
         const [technicians, setTechnicians] = useState([]);
@@ -938,13 +932,9 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
     const totalPages = Math.ceil(filteredProjects.length / itemsPerPage);
 
     const paginate = (pageNumber) => setCurrentPage(pageNumber);
-    // **FUNCIÓN CORREGIDA PARA MANEJAR ZONAS HORARIAS**
-    // --- Reemplazar la función formatDate existente ---
     const formatDate = (timestamp) => {
         if (!timestamp) return '---';
         const date = timestamp.toDate();
-        // CORRECCIÓN: Se obtiene el desfase de la zona horaria del navegador y se ajusta la fecha.
-        // Esto asegura que "15 de Octubre" se muestre como "15 de Octubre" sin importar la zona horaria.
         const userTimezoneOffset = date.getTimezoneOffset() * 60000;
         const adjustedDate = new Date(date.getTime() + userTimezoneOffset);
         return adjustedDate.toLocaleDateString('es-MX', {
@@ -952,7 +942,6 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
         });
     };
 
-    // **FUNCIÓN RESTAURADA**
     const getDueDateColor = (timestamp) => {
         if (!timestamp) return 'text-gray-500';
         const dueDate = timestamp.toDate();
@@ -962,9 +951,9 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
         const diffTime = dueDate.getTime() - today.getTime();
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-        if (diffDays < 0) return 'text-red-600 font-bold'; // Vencido
-        if (diffDays <= 3) return 'text-orange-500 font-semibold'; // Por vencer
-        return 'text-gray-600'; // Normal
+        if (diffDays < 0) return 'text-red-600 font-bold';
+        if (diffDays <= 3) return 'text-orange-500 font-semibold';
+        return 'text-gray-600';
     };
 
     const handleActivateProject = async (projectId) => {
@@ -973,7 +962,7 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
 
     const handleDeleteProject = async (projectId) => {
         await deleteDoc(doc(db, "proyectos", projectId));
-        setConfirmingAction(null); // Cierra el modal
+        setConfirmingAction(null);
     };
 
     const promptDeleteProject = (projectId, projectNpu) => {
@@ -1120,11 +1109,10 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
 const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
     const [confirmingAction, setConfirmingAction] = useState(null);
 
-    // El handler de APROBACIÓN ahora lee el proyecto directamente desde el estado 'confirmingAction'
     const handleApprove = async () => {
         if (!confirmingAction || confirmingAction.action !== 'approve') return;
         
-        const { project } = confirmingAction.payload; // Se obtiene el proyecto del estado
+        const { project } = confirmingAction.payload;
         const projectRef = doc(db, "proyectos", project.id);
         const isFinalDelivery = !!project.urlDocumento2;
 
@@ -1142,21 +1130,20 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
             console.error("Error al aprobar proyecto:", error);
             alert("Ocurrió un error al aprobar el proyecto.");
         } finally {
-            setConfirmingAction(null); // Cierra el modal
-            onUpdateProject(); // Refresca la tabla
+            setConfirmingAction(null); 
+            onUpdateProject();
         }
     };
 
-    // El handler de RECHAZO ahora solo necesita el 'motivo', ya que obtiene el ID del estado
     const handleReject = async (reason) => {
         if (!confirmingAction || confirmingAction.action !== 'reject') return;
         
         if (!reason || reason.trim() === '') {
             alert("El motivo del rechazo no puede estar vacío.");
-            return; // No cierra el modal para que el usuario pueda escribir el motivo.
+            return; 
         }
 
-        const { projectId } = confirmingAction.payload; // Se obtiene el ID del estado
+        const { projectId } = confirmingAction.payload; 
         const projectRef = doc(db, "proyectos", projectId);
         
         try {
@@ -1165,12 +1152,11 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
             console.error("Error al rechazar proyecto:", error);
             alert("Ocurrió un error al rechazar el proyecto.");
         } finally {
-            setConfirmingAction(null); // Cierra el modal
-            onUpdateProject(); // Refresca la tabla
+            setConfirmingAction(null); 
+            onUpdateProject(); 
         }
     };
 
-    // La función que abre el modal de aprobación ahora solo guarda los datos necesarios en el estado.
     const promptApprove = (project) => {
         const isFinalDelivery = !!project.urlDocumento2;
         const hasBeenBilled = project.faseFacturacion === 'Preliminar' || project.faseFacturacion === 'Fase 2 Pendiente';
@@ -1181,17 +1167,16 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
         
         setConfirmingAction({
             action: 'approve',
-            payload: { project }, // Guardamos el objeto de proyecto completo
+            payload: { project },
             title: "Confirmar Aprobación",
             message: confirmationMessage,
         });
     };
 
-    // La función que abre el modal de rechazo guarda solo el ID.
     const promptReject = (projectId) => {
         setConfirmingAction({
             action: 'reject',
-            payload: { projectId }, // Guardamos el ID del proyecto
+            payload: { projectId }, 
             title: "Rechazar Proyecto",
             message: "Por favor, introduce el motivo del rechazo para notificar al practicante.",
             confirmText: "Rechazar",
@@ -1225,7 +1210,6 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                     <div className="flex space-x-4">
-                                        {/* Los botones ahora llaman a las funciones 'prompt' correctas */}
                                         <button onClick={() => promptApprove(project)} className="text-green-600 hover:text-green-900">Aprobar</button>
                                         <button onClick={() => promptReject(project.id)} className="text-orange-600 hover:text-orange-900">Rechazar</button>
                                     </div>
@@ -1236,12 +1220,11 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
                 </table>
             </div>
 
-            {/* El JSX para renderizar los modales ahora es más limpio y correcto. */}
             {confirmingAction?.action === 'approve' && (
                 <ConfirmationModal 
                     title={confirmingAction.title}
                     message={confirmingAction.message}
-                    onConfirm={handleApprove} // Llama directamente al handler de aprobación
+                    onConfirm={handleApprove} 
                     onCancel={() => setConfirmingAction(null)}
                 />
             )}
@@ -1250,7 +1233,7 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
                 <ActionWithReasonModal 
                     title={confirmingAction.title}
                     message={confirmingAction.message}
-                    onConfirm={handleReject} // Llama directamente al handler de rechazo, que recibirá 'reason'
+                    onConfirm={handleReject} 
                     onCancel={() => setConfirmingAction(null)}
                     confirmText={confirmingAction.confirmText}
                     confirmColor={confirmingAction.confirmColor}
@@ -1303,12 +1286,9 @@ const ClientProjectsList = ({ projects, onOpenModal }) => {
     );
 };
 
-// --- Reemplazar el componente ClientDashboard existente ---
 
 const ClientDashboard = ({ user, userData }) => {
-    // El estado 'projects' mantiene el historial completo para la lista detallada
     const [projects, setProjects] = useState([]);
-    // NUEVO ESTADO: 'shelfProjects' contendrá la lista sin duplicados para la estantería
     const [shelfProjects, setShelfProjects] = useState([]);
     const [loading, setLoading] = useState(true);
     const [clientView, setClientView] = useState('shelf');
@@ -1325,31 +1305,23 @@ const ClientDashboard = ({ user, userData }) => {
         
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
             const projectsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            // Ordenar todos los proyectos por fecha para la lista detallada
             projectsData.sort((a, b) => (b.fechaApertura?.seconds || 0) - (a.fechaApertura?.seconds || 0));
-            // Guardamos la lista completa para la "Lista Detallada"
             setProjects(projectsData);
 
-            // --- NUEVA LÓGICA DE FILTRADO PARA LA ESTANTERÍA ---
-            // Usamos un Map para garantizar que solo tengamos el proyecto más reciente por cada servicio.
             const latestProjectsMap = new Map();
 
             projectsData.forEach(project => {
-                // Solo consideramos proyectos terminados con un enlace para la estantería
                 if (project.estadoCliente === 'Terminado' && project.urlHeyzine) {
                     const serviceId = project.servicioId;
                     const existingProject = latestProjectsMap.get(serviceId);
 
-                    // Si no hay un proyecto para este servicio o si el actual es más reciente, lo guardamos/reemplazamos.
                     if (!existingProject || (project.fechaApertura?.seconds > existingProject.fechaApertura?.seconds)) {
                         latestProjectsMap.set(serviceId, project);
                     }
                 }
             });
 
-            // Convertimos el mapa de vuelta a un array para pasarlo al componente
             setShelfProjects(Array.from(latestProjectsMap.values()));
-            // --- FIN DE LA NUEVA LÓGICA ---
 
             setLoading(false);
         }, (error) => {
@@ -1382,10 +1354,8 @@ const ClientDashboard = ({ user, userData }) => {
             ) : projects.length === 0 ? (
                 <p className="text-center text-gray-500 mt-8">No hay proyectos para mostrar.</p>
             ) : clientView === 'shelf' ? (
-                // Pasamos la nueva lista 'shelfProjects' a la estantería
                 <ProjectsShelf projects={shelfProjects} onOpenModal={setModalUrl} />
             ) : (
-                // Pasamos la lista completa 'projects' a la lista detallada
                 <ClientProjectsList projects={projects} onOpenModal={setModalUrl} />
             )}
 
@@ -1403,23 +1373,23 @@ const PipelineChart = ({ chartData }) => {
             {
                 label: 'Valor en Cotización',
                 data: chartData.cotizacionData,
-                backgroundColor: 'rgba(255, 159, 64, 0.7)', // Naranja
+                backgroundColor: 'rgba(255, 159, 64, 0.7)',
             },
             {
                 label: 'Valor Activo',
                 data: chartData.activoData,
-                backgroundColor: 'rgba(54, 162, 235, 0.7)', // Azul
+                backgroundColor: 'rgba(54, 162, 235, 0.7)',
             },
             {
                 label: 'Valor Pdto. Factura',
                 data: chartData.pendienteFacturaData,
-                backgroundColor: 'rgba(255, 206, 86, 0.7)', // Amarillo
+                backgroundColor: 'rgba(255, 206, 86, 0.7)', 
             },
             {
-                type: 'line', // Este dataset es una línea
+                type: 'line', 
                 label: 'Valor Total Ofertado',
                 data: chartData.totalData,
-                borderColor: 'rgba(75, 192, 192, 1)', // Verde-azulado
+                borderColor: 'rgba(75, 192, 192, 1)', 
                 backgroundColor: 'rgba(75, 192, 192, 0.2)',
                 fill: true,
                 tension: 0.2,
@@ -1474,27 +1444,27 @@ const AccountsReceivableChart = ({ chartData }) => {
             {
                 label: 'Pagado',
                 data: chartData.pagadoData,
-                backgroundColor: 'rgba(75, 192, 192, 0.7)', // Verde
+                backgroundColor: 'rgba(75, 192, 192, 0.7)', 
             },
             {
                 label: 'Programado a Pago',
                 data: chartData.programadoData,
-                backgroundColor: 'rgba(54, 162, 235, 0.7)', // Azul
+                backgroundColor: 'rgba(54, 162, 235, 0.7)', 
             },
             {
                 label: 'Vence Hoy',
                 data: chartData.venceHoyData,
-                backgroundColor: 'rgba(255, 159, 64, 0.7)', // Naranja
+                backgroundColor: 'rgba(255, 159, 64, 0.7)', 
             },
             {
                 label: 'Vencido',
                 data: chartData.vencidoData,
-                backgroundColor: 'rgba(255, 99, 132, 0.7)', // Rojo
+                backgroundColor: 'rgba(255, 99, 132, 0.7)', 
             },
             {
                 label: 'Pdte. de Programación',
                 data: chartData.pdteProgramacionData,
-                backgroundColor: 'rgba(201, 203, 207, 0.7)', // Gris
+                backgroundColor: 'rgba(201, 203, 207, 0.7)', 
             },
             {
                 type: 'line',
@@ -1541,14 +1511,14 @@ const CashFlowChart = ({ chartData }) => {
                 data: chartData.ingresosData,
                 borderColor: 'rgb(54, 162, 235)',
                 backgroundColor: 'rgba(54, 162, 235, 0.5)',
-                type: 'bar', // Barras para ingresos
+                type: 'bar', 
             },
             {
                 label: 'Egresos Programados',
                 data: chartData.egresosData,
                 borderColor: 'rgb(255, 99, 132)',
                 backgroundColor: 'rgba(255, 99, 132, 0.5)',
-                type: 'bar', // Barras para egresos
+                type: 'bar', 
             }
         ]
     };
@@ -1571,12 +1541,12 @@ const CashFlowChart = ({ chartData }) => {
 //Componente para la gráfica de Productividad por Técnico. 
 const TechnicianProductivityChart = ({ chartData }) => {
     const data = {
-        labels: chartData.labels, // Nombres de los técnicos
+        labels: chartData.labels,
         datasets: [
             {
                 label: 'Proyectos Entregados (Mes Actual)',
-                data: chartData.completedData, // Cantidad de proyectos
-                backgroundColor: 'rgba(153, 102, 255, 0.7)', // Morado
+                data: chartData.completedData, 
+                backgroundColor: 'rgba(153, 102, 255, 0.7)',
                 borderColor: 'rgba(153, 102, 255, 1)',
                 borderWidth: 1,
             },
@@ -1584,12 +1554,12 @@ const TechnicianProductivityChart = ({ chartData }) => {
     };
 
     const options = {
-        indexAxis: 'y', // Hace que la gráfica sea horizontal
+        indexAxis: 'y', 
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
             legend: {
-                display: false, // No es necesaria con una sola barra
+                display: false, 
             },
             title: {
                 display: false,
@@ -1599,7 +1569,6 @@ const TechnicianProductivityChart = ({ chartData }) => {
             x: {
                 beginAtZero: true,
                 ticks: {
-                    // Asegura que solo se muestren números enteros en el eje
                     stepSize: 1,
                 }
             }
@@ -1609,7 +1578,7 @@ const TechnicianProductivityChart = ({ chartData }) => {
     return <Bar options={options} data={data} />;
 };
 
-//Muestra un indicador clave de rendimiento (KPI) en un widget.
+// El widget que muestra un KPI en el dashboard directivo.
 const KPIWidget = ({ title, value, unit = '', trend = null }) => {
     return (
         <div className="bg-white p-5 rounded-xl shadow-md">
@@ -1618,7 +1587,6 @@ const KPIWidget = ({ title, value, unit = '', trend = null }) => {
                 {value}
                 <span className="text-xl font-semibold ml-1">{unit}</span>
             </p>
-            {/* Próximamente se podría añadir un indicador de tendencia */}
         </div>
     );
 };
@@ -1630,12 +1598,11 @@ const DirectivoDashboard = () => {
     const [dashboardData, setDashboardData] = useState(null);
 
     /**
-     * Procesa los datos crudos de Firestore para generar las métricas del dashboard.
-     * @param {Array} projects - Array de todos los proyectos.
-     * @param {Array} invoices - Array de todas las facturas.
-     * @returns {Object} - Objeto con los datos procesados para las gráficas.
+     * @param {Array} projects
+     * @param {Array} invoices
+     * @returns {Object}
      */
-// --- Reemplazar la función processDataForDashboard completa ---
+
 
     const processDataForDashboard = (projects, invoices, technicians) => {
         const currentYear = new Date().getFullYear();
@@ -1645,7 +1612,6 @@ const DirectivoDashboard = () => {
         today.setHours(0, 0, 0, 0);
         const oneDay = 1000 * 60 * 60 * 24;
 
-        // --- Lógica de Gráficas (sin cambios) ---
         const monthlyProjectsData = Array(12).fill(0).map(() => ({ cotizacion: 0, activo: 0, pendienteFactura: 0, total: 0 }));
         projects.forEach(p => {
             if (p.fechaApertura?.toDate && p.fechaApertura.toDate().getFullYear() === currentYear) {
@@ -1712,23 +1678,19 @@ const DirectivoDashboard = () => {
             });
         });
 
-        // --- Nueva Lógica para los KPIs Principales ---
         let totalMargin = 0, projectsWithFinancials = 0;
         let totalDeliveryDays = 0, completedProjects = 0;
         let totalActivationDays = 0, activatedProjects = 0;
 
         projects.forEach(p => {
-            // Margen de beneficio
             if ((p.precioCotizacionCliente || 0) > 0 && (p.costoProveedor || 0) >= 0) {
                 totalMargin += (p.precioCotizacionCliente - p.costoProveedor) / p.precioCotizacionCliente;
                 projectsWithFinancials++;
             }
-            // Tiempo de entrega
             if (p.fechaAsignacionTecnico?.toDate && p.fechaFinTecnico1?.toDate) {
                 totalDeliveryDays += (p.fechaFinTecnico1.toDate() - p.fechaAsignacionTecnico.toDate()) / oneDay;
                 completedProjects++;
             }
-            // Tiempo de activación
             if (p.fechaApertura?.toDate && p.fechaAsignacionTecnico?.toDate) {
                 totalActivationDays += (p.fechaAsignacionTecnico.toDate() - p.fechaApertura.toDate()) / oneDay;
                 activatedProjects++;
@@ -1754,7 +1716,6 @@ const DirectivoDashboard = () => {
     useEffect(() => {
         const fetchData = async () => {
             try {
-                // Añadimos una tercera consulta para obtener los técnicos
                 const projectsQuery = query(collection(db, "proyectos"));
                 const invoicesQuery = query(collection(db, "facturas"));
                 const techniciansQuery = query(collection(db, "usuarios"), where("rol", "==", "tecnico"));
@@ -1762,14 +1723,13 @@ const DirectivoDashboard = () => {
                 const [projectsSnapshot, invoicesSnapshot, techniciansSnapshot] = await Promise.all([
                     getDocs(projectsQuery),
                     getDocs(invoicesQuery),
-                    getDocs(techniciansQuery) // Ejecutamos la nueva consulta
+                    getDocs(techniciansQuery)
                 ]);
 
                 const allProjects = projectsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 const allInvoices = invoicesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 const allTechnicians = techniciansSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 
-                // Pasamos los técnicos a la función de procesamiento
                 const processedData = processDataForDashboard(allProjects, allInvoices, allTechnicians);
                 setDashboardData(processedData);
 
@@ -1792,7 +1752,6 @@ const DirectivoDashboard = () => {
         return <div className="text-center py-10 text-red-600">{error}</div>;
     }
 
-// --- Reemplazar solo la sección de return dentro de DirectivoDashboard ---
 
     return (
         <div className="space-y-8">
@@ -1801,7 +1760,6 @@ const DirectivoDashboard = () => {
                 <p className="text-gray-600">Vista general de la salud y rendimiento del negocio.</p>
             </div>
 
-            {/* Fila de KPIs Principales (Widgets) */}
             {dashboardData?.kpis && (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
                     <KPIWidget title="Margen Promedio" value={dashboardData.kpis.avgMargin} unit="%" />
@@ -1811,7 +1769,6 @@ const DirectivoDashboard = () => {
                 </div>
             )}
 
-            {/* Sección de Gráficas */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <div className="bg-white p-6 rounded-xl shadow-md">
                     <h3 className="font-bold text-lg mb-4">Pipeline de Proyectos (Mensual)</h3>
@@ -1849,11 +1806,10 @@ const EcotechDashboard = () => {
 
     const fetchProjects = () => {
         setLoading(true);
-        // Busca proyectos activos cuyo proveedor sea "Ecotech"
         const q = query(
             collection(db, "proyectos"), 
             where("proveedorNombre", "==", "Ecotech Ingenieria del Medio Ambiente"),
-            where("estado", "!=", "Terminado") // No muestra los proyectos ya terminados
+            where("estado", "!=", "Terminado") 
         );
         
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
@@ -2055,13 +2011,11 @@ const SupervisorDashboard = ({ user, userData }) => {
     const [view, setView] = useState('new'); // 'new' o 'assigned'
     const [allActiveProjects, setAllActiveProjects] = useState([]);
     const [loading, setLoading] = useState(true);
-    // Estados para el ordenamiento
     const [sortBy, setSortBy] = useState('fechaApertura');
     const [sortOrder, setSortOrder] = useState('desc');
 
     useEffect(() => {
         setLoading(true);
-        // Esta consulta ahora carga TODOS los proyectos activos. El filtrado se hará en el cliente.
         const q = query(collection(db, "proyectos"), where("estado", "==", "Activo"));
         
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
@@ -2076,7 +2030,6 @@ const SupervisorDashboard = ({ user, userData }) => {
         return () => unsubscribe();
     }, []);
 
-    // Usamos useMemo para filtrar y ordenar los proyectos de forma eficiente
     const displayedProjects = React.useMemo(() => {
         const filtered = allActiveProjects.filter(p => {
             const hasAssignedTechnicians = p.asignadoTecnicosIds && p.asignadoTecnicosIds.length > 0;
@@ -2089,7 +2042,7 @@ const SupervisorDashboard = ({ user, userData }) => {
             const fieldA = a[sortBy];
             const fieldB = b[sortBy];
             
-            if (!fieldA) return 1; // Mover proyectos sin fecha al final
+            if (!fieldA) return 1;
             if (!fieldB) return -1;
 
             let comparison = 0;
@@ -2112,7 +2065,6 @@ const SupervisorDashboard = ({ user, userData }) => {
                 </nav>
             </div>
 
-            {/* Controles de Ordenamiento */}
             <div className="flex justify-end items-center mb-4">
                 <label htmlFor="sort-by" className="text-sm font-medium text-gray-700 mr-2">Ordenar por:</label>
                 <select id="sort-by" value={sortBy} onChange={e => setSortBy(e.target.value)} className="border rounded-md p-1 text-sm">
@@ -2131,7 +2083,7 @@ const SupervisorDashboard = ({ user, userData }) => {
 
 // **CÓDIGO COMPLETO Y CORREGIDO PARA TecnicoDashboard**
 const TecnicoDashboard = ({ user, userData }) => {
-    const [view, setView] = useState('new'); // 'new' o 'inProgress'
+    const [view, setView] = useState('new');
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -3266,7 +3218,7 @@ const AuthPage = () => {
     );
 };
 
-
+// El componente principal que envuelve toda la aplicación.
 export default function App() {
     const [user, setUser] = useState(null);
     const [userData, setUserData] = useState(null);

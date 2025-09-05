@@ -124,9 +124,55 @@ const ActionWithReasonModal = ({ title, message, onConfirm, onCancel, confirmTex
     );
 };
 
+const SupervisorNoteModal = ({ project, onClose, onUpdate }) => {
+    const [note, setNote] = useState(project.notasSupervisor || '');
+    const [loading, setLoading] = useState(false);
 
-const Header = ({ user, userData }) => {
+    const handleSave = async () => {
+        setLoading(true);
+        const projectRef = doc(db, "proyectos", project.id);
+        try {
+            await updateDoc(projectRef, {
+                notasSupervisor: note,
+            });
+            onUpdate();
+            onClose();
+        } catch (err) {
+            console.error("Error al guardar la nota:", err);
+            alert("No se pudo guardar la nota.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
+            <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg">
+                <h3 className="text-lg font-bold mb-4">Notas del Supervisor: {project.npu}</h3>
+                <textarea
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="Escribe tus notas personales aquí..."
+                    rows="5"
+                    className="w-full p-2 border rounded-md"
+                ></textarea>
+                <div className="flex justify-end space-x-3 mt-6">
+                    <button onClick={onClose} className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">Cancelar</button>
+                    <button onClick={handleSave} disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                        {loading ? 'Guardando...' : 'Guardar Nota'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// El Header o cabecera de la página. Muestra el logo y el botón de salir.
+// También contiene el nuevo selector de roles para usuarios con más de uno.
+const Header = ({ user, userData, selectedRole, setSelectedRole }) => {
     const logoGrupoEvelsa = "https://www.grupoevelsa.com/assets/images/Logo Evelsa 2.png";
+    const hasMultipleRoles = userData?.roles && userData.roles.length > 1;
+
     return (
         <header className="bg-white shadow-md sticky top-0 z-40">
             <div className="max-w-7xl mx-auto py-3 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
@@ -138,10 +184,25 @@ const Header = ({ user, userData }) => {
                     )}
                 </div>
                 {user && (
-                    <div className="flex items-center">
-                        <span className="text-gray-600 mr-4 hidden sm:block">
+                    <div className="flex items-center space-x-4">
+                        <span className="text-gray-600 hidden sm:block">
                             Hola, {userData ? userData.nombreCompleto.split(' ')[0] : user.email}
                         </span>
+
+                        {hasMultipleRoles && (
+                            <div className="relative">
+                                <select 
+                                    value={selectedRole}
+                                    onChange={(e) => setSelectedRole(e.target.value)}
+                                    className="appearance-none bg-gray-100 border border-gray-300 rounded-md py-2 pl-3 pr-8 text-sm font-medium text-gray-700 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                                >
+                                    {userData.roles.map(role => (
+                                        <option key={role} value={role} className="capitalize">{role.charAt(0).toUpperCase() + role.slice(1)}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+                        
                         <button onClick={() => signOut(auth)} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
                             Salir
                         </button>
@@ -152,7 +213,6 @@ const Header = ({ user, userData }) => {
     );
 };
 
-// **CÓDIGO COMPLETO Y CORREGIDO PARA ProjectLogModal**
 const ProjectLogModal = ({ project, user, userData, onClose }) => {
     const [logEntries, setLogEntries] = useState([]);
     const [newNote, setNewNote] = useState('');
@@ -160,6 +220,7 @@ const ProjectLogModal = ({ project, user, userData, onClose }) => {
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
+    const isSupervisor = userData?.roles?.includes("supervisor") || userData?.rol === "supervisor";
 
     useEffect(() => {
         const q = query(collection(db, "bitacoras_proyectos"), where("projectId", "==", project.id), orderBy("fecha", "asc"));
@@ -235,14 +296,16 @@ const ProjectLogModal = ({ project, user, userData, onClose }) => {
                     }
                 </div>
 
-                <div className="border-t pt-4">
-                    <textarea value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="Añadir nueva nota..." rows="3" className="w-full p-2 border rounded-md"></textarea>
-                    <input type="file" id={`file-input-${project.id}`} onChange={handleFileChange} className="w-full text-sm mt-2"/>
-                    <Alert message={error} type="error" onClose={() => setError('')} />
-                    <button onClick={handleSubmitNote} disabled={submitting} className="w-full mt-2 bg-[#b0ef26] hover:bg-[#9ac91e] text-black font-bold py-2 px-4 rounded-lg disabled:bg-gray-300">
-                        {submitting ? 'Guardando...' : 'Añadir a la Bitácora'}
-                    </button>
-                </div>
+          {!isSupervisor && (
+                    <div className="border-t pt-4">
+                        <textarea value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="Añadir nueva nota..." rows="3" className="w-full p-2 border rounded-md"></textarea>
+                        <input type="file" id={`file-input-${project.id}`} onChange={handleFileChange} className="w-full text-sm mt-2"/>
+                        <Alert message={error} type="error" onClose={() => setError('')} />
+                        <button onClick={handleSubmitNote} disabled={submitting} className="w-full mt-2 bg-[#b0ef26] hover:bg-[#9ac91e] text-black font-bold py-2 px-4 rounded-lg disabled:bg-gray-300">
+                            {submitting ? 'Guardando...' : 'Añadir a la Bitácora'}
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -327,7 +390,6 @@ const UserManagement = ({ onUserAdded }) => {
     );
 };
 
-// **NUEVO COMPONENTE REUTILIZABLE PARA GESTIONAR DATOS MAESTROS**
 const DataManagement = ({ collectionName, title, fields, placeholderTexts }) => {
     const [items, setItems] = useState([]);
     const [newItem, setNewItem] = useState({});
@@ -418,7 +480,10 @@ const DataManagement = ({ collectionName, title, fields, placeholderTexts }) => 
     );
 };
 
-// **CÓDIGO ACTUALIZADO PARA AdminDashboard (FASE 2.2)**
+// -- DASHBOARDS POR ROL --
+
+// El dashboard del Administrador. Contiene las pestañas para gestionar
+// proyectos, usuarios, servicios, proveedores y la revisión final.
 const AdminDashboard = () => {
     const [view, setView] = useState('projects');
     const [projects, setProjects] = useState([]);
@@ -528,7 +593,6 @@ const ProjectsShelf = ({ projects, onOpenModal }) => {
     );
 };
 
-// **CÓDIGO COMPLETO Y CORREGIDO PARA NewProjectForm**
 const NewProjectForm = ({ onProjectAdded }) => {
     const [formData, setFormData] = useState({ 
         clienteId: '', 
@@ -737,7 +801,6 @@ const NewProjectForm = ({ onProjectAdded }) => {
     );
 };
 
-// **CÓDIGO ACTUALIZADO PARA ProjectsTable (CON MODAL DE BORRADO)**
 const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) => {
     const [modalProject, setModalProject] = useState(null);
     const [modalType, setModalType] = useState('');
@@ -747,15 +810,24 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
     const [techniciansMap, setTechniciansMap] = useState({});
     const [invoicesMap, setInvoicesMap] = useState({});
     const [confirmingAction, setConfirmingAction] = useState(null);
-
+    const [noteModalProject, setNoteModalProject] = useState(null);
 
     useEffect(() => {
         const fetchExtraData = () => {
-            const qTechs = query(collection(db, "usuarios"), where("rol", "==", "tecnico"));
-            const unsubTechs = onSnapshot(qTechs, (snapshot) => {
+            const qTechsOld = query(collection(db, "usuarios"), where("rol", "==", "tecnico"));
+            const qTechsNew = query(collection(db, "usuarios"), where("roles", "array-contains", "tecnico"));
+
+            const unsubTechs = onSnapshot(qTechsNew, (snapshotNew) => {
                 const techMap = {};
-                snapshot.forEach(doc => { techMap[doc.id] = doc.data().nombreCompleto; });
-                setTechniciansMap(techMap);
+                snapshotNew.forEach(doc => { techMap[doc.id] = doc.data().nombreCompleto; })
+                getDocs(qTechsOld).then(snapshotOld => {
+                    snapshotOld.forEach(doc => {
+                        if (!techMap[doc.id]) {
+                            techMap[doc.id] = doc.data().nombreCompleto;
+                        }
+                    });
+                    setTechniciansMap(techMap);
+                });
             });
 
             const qInvoices = query(collection(db, "facturas"));
@@ -778,6 +850,8 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
         const [files, setFiles] = useState({ cotizacionClienteFile: null, poClienteFile: null, cotizacionProveedorFile: null, poProveedorFile: null });
         const [loading, setLoading] = useState(false);
         const [error, setError] = useState('');
+        const [precio, setPrecio] = useState(project.precioCotizacionCliente || '');
+        const [costo, setCosto] = useState(project.costoProveedor || '');
 
         const handleFileChange = (e) => {
             const { name, files: inputFiles } = e.target;
@@ -796,7 +870,11 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
             setLoading(true);
             setError('');
             try {
-                const updatePayload = {};
+                const updatePayload = {
+                    precioCotizacionCliente: Number(precio) || 0,
+                    costoProveedor: Number(costo) || 0,
+                };
+
                 const urlCotizacionCliente = await uploadFile(files.cotizacionClienteFile, `cotizaciones_clientes/${Date.now()}_${files.cotizacionClienteFile?.name}`);
                 const urlPOCliente = await uploadFile(files.poClienteFile, `po_clientes/${Date.now()}_${files.poClienteFile?.name}`);
                 const urlCotizacionProveedor = await uploadFile(files.cotizacionProveedorFile, `cotizaciones_proveedores/${Date.now()}_${files.cotizacionProveedorFile?.name}`);
@@ -812,14 +890,12 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
                     updatePayload.estadoCliente = 'Activo';
                 }
 
-                if (Object.keys(updatePayload).length > 0) {
-                    await updateDoc(doc(db, "proyectos", project.id), updatePayload);
-                }
+                await updateDoc(doc(db, "proyectos", project.id), updatePayload);
                 
                 onFinalized();
                 onClose();
             } catch (err) {
-                setError("Error al subir documentos.");
+                setError("Error al subir documentos o guardar cambios.");
                 setLoading(false);
             }
         };
@@ -827,13 +903,39 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
         return (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
                 <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg">
-                    <h3 className="text-lg font-bold mb-4">Gestionar Documentos: {project.npu}</h3>
+                    <h3 className="text-lg font-bold mb-4">Gestionar Proyecto: {project.npu}</h3>
+
+                    <div className="grid grid-cols-2 gap-4 mb-6 border-b pb-6">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700">Precio Cliente (sin IVA)</label>
+                            <input
+                                type="number"
+                                value={precio}
+                                onChange={(e) => setPrecio(e.target.value)}
+                                placeholder="0.00"
+                                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700">Costo Proveedor (sin IVA)</label>
+                            <input
+                                type="number"
+                                value={costo}
+                                onChange={(e) => setCosto(e.target.value)}
+                                placeholder="0.00"
+                                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm"
+                            />
+                        </div>
+                    </div>
+                    
+                    <h4 className="text-md font-semibold mb-4 text-gray-800">Gestionar Documentos</h4>
                     <div className="space-y-4">
                         <div><label className="block text-sm font-medium">PDF Cotización Cliente</label>{project.urlCotizacionCliente ? <a href={project.urlCotizacionCliente} target="_blank" rel="noopener noreferrer" className="text-blue-500 text-sm">Ver actual</a> : <input type="file" name="cotizacionClienteFile" onChange={handleFileChange} className="mt-1 block w-full text-sm"/>}</div>
                         <div><label className="block text-sm font-medium">PDF Orden de Compra (PO) Cliente</label>{project.urlPOCliente ? <a href={project.urlPOCliente} target="_blank" rel="noopener noreferrer" className="text-blue-500 text-sm">Ver actual</a> : <input type="file" name="poClienteFile" onChange={handleFileChange} className="mt-1 block w-full text-sm"/>}</div>
                         <div><label className="block text-sm font-medium">PDF Cotización Proveedor</label>{project.urlCotizacionProveedor ? <a href={project.urlCotizacionProveedor} target="_blank" rel="noopener noreferrer" className="text-blue-500 text-sm">Ver actual</a> : <input type="file" name="cotizacionProveedorFile" onChange={handleFileChange} className="mt-1 block w-full text-sm"/>}</div>
                         <div><label className="block text-sm font-medium">PDF Orden de Compra (PO) Proveedor</label>{project.urlPOProveedor ? <a href={project.urlPOProveedor} target="_blank" rel="noopener noreferrer" className="text-blue-500 text-sm">Ver actual</a> : <input type="file" name="poProveedorFile" onChange={handleFileChange} className="mt-1 block w-full text-sm"/>}</div>
                     </div>
+                    
                     <Alert message={error} type="error" onClose={() => setError('')} />
                     <div className="mt-6 flex justify-end space-x-3"><button onClick={onClose} disabled={loading} className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">Cancelar</button><button onClick={handleSave} disabled={loading} className="bg-[#b0ef26] hover:bg-[#9ac91e] text-black font-bold py-2 px-4 rounded">{loading ? 'Guardando...' : 'Guardar Cambios'}</button></div>
                 </div>
@@ -841,10 +943,8 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
         );
     };
     
-
     const AssignProjectModal = ({ project, onClose, onFinalized }) => {
         const [technicians, setTechnicians] = useState([]);
-        // CAMBIO 1: El estado ahora guarda un solo ID, no un array.
         const [selectedTechnicianId, setSelectedTechnicianId] = useState(
             (project.asignadoTecnicosIds && project.asignadoTecnicosIds[0]) || ''
         );
@@ -853,9 +953,16 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
 
         useEffect(() => {
             const fetchTechnicians = async () => {
-                const q = query(collection(db, "usuarios"), where("rol", "==", "tecnico"));
-                const querySnapshot = await getDocs(q);
-                setTechnicians(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                const q1 = query(collection(db, "usuarios"), where("rol", "==", "tecnico"));
+                const q2 = query(collection(db, "usuarios"), where("roles", "array-contains", "tecnico"));
+
+                const [snapshot1, snapshot2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+
+                const techMap = new Map();
+                snapshot1.forEach((doc) => techMap.set(doc.id, { id: doc.id, ...doc.data() }));
+                snapshot2.forEach((doc) => techMap.set(doc.id, { id: doc.id, ...doc.data() }));
+                
+                setTechnicians(Array.from(techMap.values()));
             };
             fetchTechnicians();
         }, []);
@@ -868,12 +975,11 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
             setLoading(true);
             const projectRef = doc(db, "proyectos", project.id);
             
-            // CAMBIO 2: La lógica ahora se basa en el único técnico seleccionado.
             const tecnicosStatus = {};
             tecnicosStatus[selectedTechnicianId] = project.tecnicosStatus?.[selectedTechnicianId] || "No Visto";
 
             await updateDoc(projectRef, {
-                asignadoTecnicosIds: [selectedTechnicianId], // Guardamos como un array con un solo elemento
+                asignadoTecnicosIds: [selectedTechnicianId],
                 tecnicosStatus: tecnicosStatus,
                 fechaAsignacionTecnico: Timestamp.now(),
                 fechaEntregaInterna: deliveryDate ? Timestamp.fromDate(new Date(deliveryDate)) : null
@@ -893,7 +999,6 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
                             <div className="mt-2 max-h-48 overflow-y-auto border rounded-md p-2">
                                 {technicians.map(tech => (
                                     <div key={tech.id} className="flex items-center">
-                                        {/* CAMBIO 3: Usamos input de tipo "radio" */}
                                         <input
                                             type="radio"
                                             name="technician"
@@ -1018,6 +1123,7 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
                                 <>
                                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Límite</th>
                                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado Técnicos</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notas Supervisor</th>
                                 </>
                             )}
                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
@@ -1059,7 +1165,14 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
                                                         const statusClass = status === 'En Proceso' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600';
                                                         return (<span key={techId} className={`text-xs p-1 rounded ${statusClass}`}>{techniciansMap[techId] || 'Cargando...'}: {status}</span>);
                                                     })}
-                                                </div>
+                                                </div>  
+                                            </td>
+                                            <td className="px-4 py-2 text-sm text-gray-600">
+                                                <button onClick={() => setNoteModalProject(project)} className="hover:text-blue-600 text-left w-full">
+                                                    <p className="w-32 truncate" title={project.notasSupervisor || "Añadir nota"}>
+                                                        {project.notasSupervisor || <span className="text-gray-400 italic">Añadir nota...</span>}
+                                                    </p>
+                                                </button>
                                             </td>
                                         </>
                                     )}
@@ -1091,6 +1204,7 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
             {modalProject && modalType === 'assign' && <AssignProjectModal project={modalProject} onClose={() => setModalProject(null)} onFinalized={onUpdateProject} />}
             {modalProject && modalType === 'manage' && <ManageProjectModal project={modalProject} onClose={() => setModalProject(null)} onFinalized={onUpdateProject} />}
             {modalProject && modalType === 'log' && <ProjectLogModal project={modalProject} user={user} userData={userData} onClose={() => setModalProject(null)} />}
+            {noteModalProject && <SupervisorNoteModal project={noteModalProject} onClose={() => setNoteModalProject(null)} onUpdate={onUpdateProject} />}
             {confirmingAction && (
                 <ConfirmationModal 
                     title={confirmingAction.title}
@@ -1105,7 +1219,6 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
     );
 };
 
-// **CÓDIGO ACTUALIZADO PARA ReviewProjectsTable (CON MODALES CORREGIDOS)**
 const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
     const [confirmingAction, setConfirmingAction] = useState(null);
 
@@ -1286,7 +1399,7 @@ const ClientProjectsList = ({ projects, onOpenModal }) => {
     );
 };
 
-
+// El dashboard del Cliente. Contiene la estantería visual y la lista detallada de sus proyectos.
 const ClientDashboard = ({ user, userData }) => {
     const [projects, setProjects] = useState([]);
     const [shelfProjects, setShelfProjects] = useState([]);
@@ -1434,9 +1547,7 @@ const PipelineChart = ({ chartData }) => {
     return <Bar options={options} data={data} />;
 };
 
-/**
- * Componente para la gráfica de Salud de Cuentas por Cobrar.
- */
+//Componente para la gráfica de Salud de Cuentas por Cobrar.
 const AccountsReceivableChart = ({ chartData }) => {
     const data = {
         labels: chartData.labels,
@@ -1499,9 +1610,7 @@ const AccountsReceivableChart = ({ chartData }) => {
     return <Bar options={options} data={data} />;
 };
 
-/**
- * Componente para la gráfica de Flujo de Caja Proyectado (Semanal).
- */
+//Componente para la gráfica de Flujo de Caja Proyectado (Semanal).
 const CashFlowChart = ({ chartData }) => {
     const data = {
         labels: chartData.labels,
@@ -1591,11 +1700,73 @@ const KPIWidget = ({ title, value, unit = '', trend = null }) => {
     );
 };
 
-// --- Reemplazar el componente DirectivoDashboard existente por completo ---
+
+const StatusBadge = ({ status }) => {
+    const statusStyles = {
+        'Atrasado': 'bg-red-100 text-red-800',
+        'Por Vencer': 'bg-orange-100 text-orange-800',
+        'A Tiempo': 'bg-green-100 text-green-800',
+        'Sin Fecha': 'bg-gray-100 text-gray-600',
+    };
+    return (
+        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusStyles[status] || 'bg-gray-100'}`}>
+            {status}
+        </span>
+    );
+};
+
+const OperationalTrackingTable = ({ projects, techniciansMap }) => {
+    const formatDate = (timestamp) => {
+        if (!timestamp) return '---';
+        const date = timestamp.toDate();
+        const userTimezoneOffset = date.getTimezoneOffset() * 60000;
+        const adjustedDate = new Date(date.getTime() + userTimezoneOffset);
+        return adjustedDate.toLocaleDateString('es-MX', {
+            year: 'numeric', month: '2-digit', day: '2-digit'
+        });
+    };
+
+    return (
+        <div className="overflow-x-auto bg-white rounded-lg shadow mt-6">
+            <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                    <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Planta/Ubicación</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Técnico</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Asignación</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Límite</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notas del Supervisor</th>
+                    </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                    {projects.map(project => (
+                        <tr key={project.id}>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm"><StatusBadge status={project.status} /></td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-800">{project.ubicacionCliente || project.clienteNombre}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{project.servicioNombre}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{techniciansMap[project.asignadoTecnicosIds?.[0]] || 'No asignado'}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{formatDate(project.fechaAsignacionTecnico)}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{formatDate(project.fechaEntregaInterna)}</td>
+                            <td className="px-6 py-4 text-sm text-gray-600" title={project.notasSupervisor}>
+                                <p className="w-48 truncate">{project.notasSupervisor || '---'}</p>
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+};
+
+// El dashboard Directivo. Muestra las gráficas y KPIs
+// sobre la salud del negocio que construimos.
 const DirectivoDashboard = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [dashboardData, setDashboardData] = useState(null);
+    const [view, setView] = useState('kpis');
 
     /**
      * @param {Array} projects
@@ -1704,12 +1875,47 @@ const DirectivoDashboard = () => {
             invoicedThisMonth: (monthlyARData[currentMonth].totalFacturado).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })
         };
 
+        today.setHours(0, 0, 0, 0);
+
+        const activeProjects = projects.filter(p => p.estado === "Activo");
+
+        const operationalProjects = activeProjects.map(p => {
+            let status = 'A Tiempo';
+            let sortOrder = 3;
+            const dueDate = p.fechaEntregaInterna?.toDate();
+
+            if (!dueDate) {
+                status = 'Sin Fecha';
+                sortOrder = 4;
+            } else {
+                dueDate.setHours(0, 0, 0, 0);
+                const diffDays = (dueDate - today) / (1000 * 60 * 60 * 24);
+                if (diffDays < 0) {
+                    status = 'Atrasado';
+                    sortOrder = 1;
+                } else if (diffDays <= 3) {
+                    status = 'Por Vencer';
+                    sortOrder = 2;
+                }
+            }
+            return { ...p, status, sortOrder };
+        });
+
+        operationalProjects.sort((a, b) => a.sortOrder - b.sortOrder);
+
+        const techniciansMap = {};
+        technicians.forEach(t => {
+            techniciansMap[t.id] = t.nombreCompleto;
+        });
+
         return {
             kpis,
             pipeline: { labels, cotizacionData: monthlyProjectsData.map(m => m.cotizacion), activoData: monthlyProjectsData.map(m => m.activo), pendienteFacturaData: monthlyProjectsData.map(m => m.pendienteFactura), totalData: monthlyProjectsData.map(m => m.total) },
             accountsReceivable: { labels, totalFacturadoData: monthlyARData.map(m => m.totalFacturado), pagadoData: monthlyARData.map(m => m.pagado), programadoData: monthlyARData.map(m => m.programado), venceHoyData: monthlyARData.map(m => m.venceHoy), vencidoData: monthlyARData.map(m => m.vencido), pdteProgramacionData: monthlyARData.map(m => m.pdteProgramacion) },
             cashFlow: { labels: weeklyLabels, ingresosData: weeklyCashFlowData.map(w => w.ingresos), egresosData: weeklyCashFlowData.map(w => w.egresos) },
-            technicianProductivity: { labels: Object.values(techProductivity).map(t => t.name), completedData: Object.values(techProductivity).map(t => t.completed) }
+            technicianProductivity: { labels: Object.values(techProductivity).map(t => t.name), completedData: Object.values(techProductivity).map(t => t.completed) },
+            operationalProjects,
+            techniciansMap
         };
     };
 
@@ -1759,47 +1965,73 @@ const DirectivoDashboard = () => {
                 <h1 className="text-3xl font-bold text-gray-900">Dashboard Directivo</h1>
                 <p className="text-gray-600">Vista general de la salud y rendimiento del negocio.</p>
             </div>
+            <div className="mb-6 border-b border-gray-200">
+                <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+                    <button onClick={() => setView('kpis')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'kpis' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>
+                        Métricas y Finanzas
+                    </button>
+                    <button onClick={() => setView('operativo')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'operativo' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>
+                        Seguimiento Operativo
+                    </button>
+                </nav>
+            </div>
 
-            {dashboardData?.kpis && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-                    <KPIWidget title="Margen Promedio" value={dashboardData.kpis.avgMargin} unit="%" />
-                    <KPIWidget title="Tiempo Prom. Entrega" value={dashboardData.kpis.avgDeliveryDays} unit="días" />
-                    <KPIWidget title="Tiempo Prom. Activación" value={dashboardData.kpis.avgActivationDays} unit="días" />
-                    <KPIWidget title="Facturado (Mes Actual)" value={dashboardData.kpis.invoicedThisMonth} />
-                </div>
+            {view === 'kpis' && (
+                <>
+                    {dashboardData?.kpis && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+                            <KPIWidget title="Margen Promedio" value={dashboardData.kpis.avgMargin} unit="%" />
+                            <KPIWidget title="Tiempo Prom. Entrega" value={dashboardData.kpis.avgDeliveryDays} unit="días" />
+                            <KPIWidget title="Tiempo Prom. Activación" value={dashboardData.kpis.avgActivationDays} unit="días" />
+                            <KPIWidget title="Facturado (Mes Actual)" value={dashboardData.kpis.invoicedThisMonth} />
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        <div className="bg-white p-6 rounded-xl shadow-md">
+                            <h3 className="font-bold text-lg mb-4">Pipeline de Proyectos (Mensual)</h3>
+                            <div className="h-80">
+                                {dashboardData?.pipeline && <PipelineChart chartData={dashboardData.pipeline} />}
+                            </div>
+                        </div>
+                        <div className="bg-white p-6 rounded-xl shadow-md">
+                            <h3 className="font-bold text-lg mb-4">Salud de Cuentas por Cobrar (Mensual)</h3>
+                            <div className="h-80">
+                                {dashboardData?.accountsReceivable && <AccountsReceivableChart chartData={dashboardData.accountsReceivable} />}
+                            </div>
+                        </div>
+                        <div className="bg-white p-6 rounded-xl shadow-md">
+                            <h3 className="font-bold text-lg mb-4">Flujo de Caja Proyectado (Próximas 8 Semanas)</h3>
+                            <div className="h-80">
+                                {dashboardData?.cashFlow && <CashFlowChart chartData={dashboardData.cashFlow} />}
+                            </div>
+                        </div>
+                        <div className="bg-white p-6 rounded-xl shadow-md">
+                            <h3 className="font-bold text-lg mb-4">Productividad por Técnico (Mes Actual)</h3>
+                            <div className="h-80">
+                                {dashboardData?.technicianProductivity && <TechnicianProductivityChart chartData={dashboardData.technicianProductivity} />}
+                            </div>
+                        </div>
+                    </div>
+                </>
             )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className="bg-white p-6 rounded-xl shadow-md">
-                    <h3 className="font-bold text-lg mb-4">Pipeline de Proyectos (Mensual)</h3>
-                    <div className="h-80">
-                        {dashboardData?.pipeline && <PipelineChart chartData={dashboardData.pipeline} />}
-                    </div>
+            {view === 'operativo' && (
+                <div>
+                    <h2 className="text-2xl font-bold text-gray-800">Proyectos Activos y Pendientes de Entrega</h2>
+                    <p className="text-gray-600 mt-1">Lista ordenada de más a menos crítico según su fecha límite.</p>
+                    {dashboardData?.operationalProjects && (
+                        <OperationalTrackingTable
+                            projects={dashboardData.operationalProjects}
+                            techniciansMap={dashboardData.techniciansMap}
+                        />
+                    )}
                 </div>
-                <div className="bg-white p-6 rounded-xl shadow-md">
-                    <h3 className="font-bold text-lg mb-4">Salud de Cuentas por Cobrar (Mensual)</h3>
-                    <div className="h-80">
-                        {dashboardData?.accountsReceivable && <AccountsReceivableChart chartData={dashboardData.accountsReceivable} />}
-                    </div>
-                </div>
-                <div className="bg-white p-6 rounded-xl shadow-md">
-                    <h3 className="font-bold text-lg mb-4">Flujo de Caja Proyectado (Próximas 8 Semanas)</h3>
-                    <div className="h-80">
-                        {dashboardData?.cashFlow && <CashFlowChart chartData={dashboardData.cashFlow} />}
-                    </div>
-                </div>
-                <div className="bg-white p-6 rounded-xl shadow-md">
-                    <h3 className="font-bold text-lg mb-4">Productividad por Técnico (Mes Actual)</h3>
-                    <div className="h-80">
-                        {dashboardData?.technicianProductivity && <TechnicianProductivityChart chartData={dashboardData.technicianProductivity} />}
-                    </div>
-                </div>
-            </div>
+            )}
         </div>
     );
 };
 
-// **CÓDIGO CORREGIDO PARA EcotechDashboard**
 const EcotechDashboard = () => {
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -1846,7 +2078,6 @@ const EcotechDashboard = () => {
     );
 };
 
-// **CÓDIGO MEJORADO PARA EcotechProjectsTable (CON FILTROS Y PAGINACIÓN)**
 const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
     const [modalProject, setModalProject] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
@@ -2006,7 +2237,8 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
     );
 };
 
-// **CÓDIGO ACTUALIZADO PARA SupervisorDashboard (FASE 3.3)**
+// El dashboard del Supervisor. Aquí ve los proyectos nuevos para asignar
+// y monitorea el progreso de los que ya están en proceso.
 const SupervisorDashboard = ({ user, userData }) => {
     const [view, setView] = useState('new'); // 'new' o 'assigned'
     const [allActiveProjects, setAllActiveProjects] = useState([]);
@@ -2081,7 +2313,8 @@ const SupervisorDashboard = ({ user, userData }) => {
     );
 };
 
-// **CÓDIGO COMPLETO Y CORREGIDO PARA TecnicoDashboard**
+// El dashboard del Técnico. Su lista de tareas pendientes y en proceso.
+// Desde aquí empieza a trabajar, usa la bitácora y finaliza sus tareas.
 const TecnicoDashboard = ({ user, userData }) => {
     const [view, setView] = useState('new');
     const [projects, setProjects] = useState([]);
@@ -2144,7 +2377,6 @@ const TecnicoDashboard = ({ user, userData }) => {
     );
 };
 
-// **CÓDIGO ACTUALIZADO PARA TecnicoProjectsTable (CON FECHA DE FINALIZACIÓN)**
 const TecnicoProjectsTable = ({ projects, onUpdateProject, user, userData, handleStartProject }) => {
     const [modalProject, setModalProject] = useState(null);
     const [modalType, setModalType] = useState(''); // 'task' o 'log'
@@ -2160,8 +2392,6 @@ const TecnicoProjectsTable = ({ projects, onUpdateProject, user, userData, handl
                 setEvidenceFile(e.target.files[0]);
             }
         };
-
-        // --- Reemplazar la función generateAndSaveNota existente ---
 
         const generateAndSaveNota = async () => {
             if (typeof window.jspdf === 'undefined') {
@@ -2180,9 +2410,7 @@ const TecnicoProjectsTable = ({ projects, onUpdateProject, user, userData, handl
             });
             const numeroNota = `${anioActual}-${nuevoConsecutivo.toString().padStart(4, '0')}`;
 
-            // --- INICIO DE CÓDIGO AÑADIDO PARA EL LOGO ---
             const logoUrl = "https://www.grupoevelsa.com/assets/images/Logo Evelsa 2.png";
-            // Para evitar problemas de CORS, convertimos la imagen a base64
             const response = await fetch(logoUrl);
             const blob = await response.blob();
             const reader = new FileReader();
@@ -2193,46 +2421,42 @@ const TecnicoProjectsTable = ({ projects, onUpdateProject, user, userData, handl
             });
             const logoBase64 = reader.result;
             
-            // Añadimos la imagen al PDF (posición x, y, ancho, alto)
             pdfDoc.addImage(logoBase64, 'PNG', 15, 15, 50, 15);
-            // --- FIN DE CÓDIGO AÑADIDO PARA EL LOGO ---
-
-            // Ajustamos la posición del texto para que no se encime con el logo
             pdfDoc.setFont("helvetica", "bold");
             pdfDoc.setFontSize(10);
-            pdfDoc.text("ECOLOGÍA Y ASESORÍA AMBIENTAL S. DE R.L. DE C.V.", 105, 20, { align: 'center' });
+            pdfDoc.text("ECOLOGÍA Y ASESORÍA AMBIENTAL S. DE R.L. DE C.V.", 105, 35, { align: 'center' });
             pdfDoc.setFont("helvetica", "normal");
             pdfDoc.setFontSize(8);
-            pdfDoc.text("HERMANOS ESCOBAR 6150-2 PARQUE INDUSTRIAL OMEGA", 105, 25, { align: 'center' });
-            pdfDoc.text("CP.32410CD. JUÁREZ, CHIHUAHUA. RFC EAA12060765A", 105, 29, { align: 'center' });
+            pdfDoc.text("HERMANOS ESCOBAR 6150-2 PARQUE INDUSTRIAL OMEGA", 105, 40, { align: 'center' });
+            pdfDoc.text("CP.32410 CD. JUÁREZ, CHIHUAHUA. RFC EAA12060765A", 105, 44, { align: 'center' });
             pdfDoc.setFontSize(16);
             pdfDoc.setFont("helvetica", "bold");
-            pdfDoc.text("NOTA DE ENTREGA", 105, 45, { align: 'center' });
-            pdfDoc.text(numeroNota, 180, 55);
-            
-            // Resto del código del PDF sin cambios...
+            pdfDoc.text("NOTA DE ENTREGA", 105, 55, { align: 'center' });
+            pdfDoc.text(numeroNota, 180, 65);
             pdfDoc.setFontSize(11);
             pdfDoc.setFont("helvetica", "normal");
-            pdfDoc.text(`FECHA: ${new Date().toLocaleDateString('es-MX')}`, 20, 65);
-            pdfDoc.text(`PROYECTO: ${project.npu}`, 20, 75);
-            pdfDoc.text(`NOMBRE/RAZÓN SOCIAL: ${project.clienteNombre}`, 20, 85);
-            pdfDoc.rect(15, 95, 180, 20);
-            pdfDoc.text("DESCRIPCIÓN", 20, 101);
-            pdfDoc.text("CANTIDAD", 170, 101);
-            pdfDoc.text(project.servicioNombre, 20, 108);
-            pdfDoc.text("1", 175, 108);
-            pdfDoc.text("Comentarios:", 20, 125);
+            pdfDoc.text(`FECHA: ${new Date().toLocaleDateString('es-MX')}`, 20, 75);
+            pdfDoc.text(`PROYECTO: ${project.npu}`, 20, 85);
+            pdfDoc.text(`NOMBRE/RAZÓN SOCIAL: ${project.clienteNombre}`, 20, 95);
+            pdfDoc.rect(15, 105, 180, 40);
+            pdfDoc.text("DESCRIPCIÓN", 20, 111);
+            pdfDoc.text("CANTIDAD", 170, 111);
+
+            const maxDescriptionWidth = 145;
+            const splitDescription = pdfDoc.splitTextToSize(project.servicioNombre, maxDescriptionWidth);
+            pdfDoc.text(splitDescription, 20, 118);
+
+            pdfDoc.text("1", 175, 118);
+            pdfDoc.text("Comentarios:", 20, 155);
             const splitComments = pdfDoc.splitTextToSize(comments, 170);
-            pdfDoc.text(splitComments, 20, 132);
+            pdfDoc.text(splitComments, 20, 162);
             pdfDoc.text("RECIBIDO POR:", 20, 250);
             pdfDoc.line(20, 260, 100, 260);
             pdfDoc.text("NOMBRE Y FIRMA", 45, 265);
-
             pdfDoc.save(`Nota_Entrega_${numeroNota}.pdf`);
             return { numeroNota };
         };
 
-        // **NUEVO CÓDIGO PARA LA FUNCIÓN handleCompleteTask**
         const handleCompleteTask = async () => {
             if (!evidenceFile) {
                 setError("Es obligatorio subir el archivo PDF de evidencia.");
@@ -2254,12 +2478,11 @@ const TecnicoProjectsTable = ({ projects, onUpdateProject, user, userData, handl
                     comentariosTecnico: comments
                 };
 
-                // Lógica para guardar la fecha de la primera o segunda entrega
-                if (!project.urlDocumento1) { // Si el documento 1 no existe, esta es la primera entrega
+                if (!project.urlDocumento1) {
                     updatePayload.urlEvidenciaTecnico1 = evidenceUrl;
                     updatePayload.numeroNotaInterna1 = numeroNota;
                     updatePayload.fechaFinTecnico1 = Timestamp.now();
-                } else { // Si el documento 1 ya existe, esta es la segunda entrega
+                } else {
                     updatePayload.urlEvidenciaTecnico2 = evidenceUrl;
                     updatePayload.numeroNotaInterna2 = numeroNota;
                     updatePayload.fechaFinTecnico2 = Timestamp.now();
@@ -2343,7 +2566,7 @@ const TecnicoProjectsTable = ({ projects, onUpdateProject, user, userData, handl
     );
 };
 
-// **CÓDIGO COMPLETO Y CORREGIDO PARA FinanzasDashboard (CON REACTIVACIÓN AUTOMÁTICA)**
+// El dashboard de Finanzas. Gestiona las facturas, cuentas por cobrar y por pagar.
 const FinanzasDashboard = ({ user, userData }) => {
     const [view, setView] = useState('pendientes');
     const [projects, setProjects] = useState([]);
@@ -2355,8 +2578,7 @@ const FinanzasDashboard = ({ user, userData }) => {
         
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
             const projectsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            
-            // **NUEVA LÓGICA DE REACTIVACIÓN AUTOMÁTICA**
+
             projectsData.forEach(project => {
                 if (project.estado === 'Facturado' && project.faseFacturacion === 'Preliminar') {
                     console.log(`[AUTO-REACTIVACIÓN] Proyecto ${project.npu} detectado para Fase 2.`);
@@ -2375,7 +2597,6 @@ const FinanzasDashboard = ({ user, userData }) => {
                 }
             });
 
-            // Filtra los proyectos ya reactivados para no mostrarlos en "Pendientes"
             setProjects(projectsData.filter(p => p.estado === 'Pendiente de Factura'));
             setLoading(false);
         });
@@ -2424,7 +2645,6 @@ const FinanzasDashboard = ({ user, userData }) => {
     );
 };
 
-// **CÓDIGO COMPLETO Y CORREGIDO PARA PendingInvoicesTable**
 const PendingInvoicesTable = ({ projects, onUpdate }) => {
     const [modalProject, setModalProject] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
@@ -2454,8 +2674,7 @@ const PendingInvoicesTable = ({ projects, onUpdate }) => {
                 return () => unsubscribe();
             }
         }, [mode]);
-        
-        // **FUNCIONES RESTAURADAS**
+
         const handleChange = (setter) => (e) => {
             const { name, value } = e.target;
             setter(prev => ({ ...prev, [name]: value }));
@@ -2505,7 +2724,7 @@ const PendingInvoicesTable = ({ projects, onUpdate }) => {
                         finalFacturaProveedorIds.push(newInvoiceRef.id);
                         updatePayload.facturasProveedorIds = finalFacturaProveedorIds;
                     }
-                } else { // mode === 'link'
+                } else { 
                     if (selectedClientInvoiceId) {
                         await updateDoc(doc(db, "facturas", selectedClientInvoiceId), { proyectosIds: arrayUnion(project.id) });
                         finalFacturaClienteIds.push(selectedClientInvoiceId);
@@ -2673,7 +2892,6 @@ const PendingInvoicesTable = ({ projects, onUpdate }) => {
     );
 };
 
-// **CÓDIGO MEJORADO Y COMPLETO PARA InvoicesList**
 const InvoicesList = ({ invoiceType, onUpdate }) => {
     const [invoices, setInvoices] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -2947,7 +3165,8 @@ const InvoicesList = ({ invoiceType, onUpdate }) => {
     );
 };
 
-// **CÓDIGO COMPLETO Y CORREGIDO PARA PracticanteDashboard**
+// El dashboard del Practicante. Recibe los proyectos terminados por los técnicos
+// para preparar los entregables finales para el cliente.
 const PracticanteDashboard = () => {
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -2976,7 +3195,6 @@ const PracticanteDashboard = () => {
         return () => unsubscribe();
     }, []);
 
-    // **CÓDIGO ACTUALIZADO PARA ManageFinalDeliveryModal**
     const ManageFinalDeliveryModal = ({ project, onClose, onFinalized }) => {
         const [heyzineUrl, setHeyzineUrl] = useState(project.urlHeyzine || '');
         const [notaPdfFile1, setNotaPdfFile1] = useState(null);
@@ -2995,7 +3213,7 @@ const PracticanteDashboard = () => {
         const handleSave = async () => {
             setLoading(true);
             const updatePayload = {
-                urlHeyzine: heyzineUrl // Siempre actualiza el enlace principal
+                urlHeyzine: heyzineUrl 
             };
             const nota1Url = await uploadFile(notaPdfFile1, `notas_entrega_cliente/${project.id}/nota1_${notaPdfFile1?.name}`);
             const nota2Url = await uploadFile(notaPdfFile2, `notas_entrega_cliente/${project.id}/nota2_${notaPdfFile2?.name}`);
@@ -3059,7 +3277,7 @@ const PracticanteDashboard = () => {
             message: "¿Estás seguro de que todos los documentos están listos y quieres enviar este proyecto a revisión final?",
             onConfirm: () => handleSendToReview(projectId)
         });
-        setConfirmingAction(null); // Cierra el modal
+        setConfirmingAction(null);
     };
 
     return (
@@ -3071,7 +3289,6 @@ const PracticanteDashboard = () => {
                         <thead className="bg-gray-50">
                             <tr>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
-                                {/* **COLUMNA AÑADIDA** */}
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Documentos del Técnico</th>
@@ -3082,7 +3299,6 @@ const PracticanteDashboard = () => {
                             {projects.map(project => (
                                  <tr key={project.id} className={project.motivoRechazo ? "bg-orange-50" : ""}>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm">{project.npu}</td>
-                                    {/* **CELDA AÑADIDA** */}
                                     <td className="px-6 py-4 whitespace-nowrap text-sm">{project.clienteNombre}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm">{project.servicioNombre}</td>
                                     <td className="px-6 py-4">
@@ -3144,12 +3360,12 @@ const PracticanteDashboard = () => {
     );
 };
 
-// --- COMPONENTE "ROUTER" PRINCIPAL ---
-const Dashboard = ({ user, userData }) => {
+// Este es el "router" principal. Recibe el rol activo del usuario
+// y decide qué dashboard específico debe mostrar.
+const Dashboard = ({ user, userData, selectedRole }) => {
     
-    // Esta función actúa como un "router" interno, mostrando el panel correcto para cada rol.
     const renderDashboardByRole = () => {
-        switch (userData.rol) {
+        switch (selectedRole) {
             case 'administrador':
                 return <AdminDashboard user={user} userData={userData} />;
             case 'cliente':
@@ -3165,7 +3381,6 @@ const Dashboard = ({ user, userData }) => {
             case 'finanzas':
                 return <FinanzasDashboard user={user} userData={userData} />;
             case 'practicante':
-                // El practicante no necesita los datos del usuario para su función actual
                 return <PracticanteDashboard />;
             default:
                 return <div><h2 className="text-2xl font-bold">Rol no reconocido</h2><p>Contacte al administrador.</p></div>;
@@ -3220,40 +3435,57 @@ const AuthPage = () => {
 
 // El componente principal que envuelve toda la aplicación.
 export default function App() {
+    // Aquí manejo el estado principal: quién es el usuario, sus datos y qué rol está usando.
     const [user, setUser] = useState(null);
     const [userData, setUserData] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [selectedRole, setSelectedRole] = useState(null);
 
+    // Este efecto se ejecuta una vez para verificar si hay una sesión activa.
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
             if (currentUser) {
+                // Si hay un usuario, busco sus datos en Firestore.
                 const userDocRef = doc(db, "usuarios", currentUser.uid);
                 const userDoc = await getDoc(userDocRef);
                 if (userDoc.exists()) {
-                    setUserData(userDoc.data());
+                    const data = userDoc.data();
+                    setUserData(data);
                     setUser(currentUser);
-                } else { 
+                    // Lógica para manejar el rol activo, ya sea uno solo o el primero de una lista.
+                    if (data.roles && data.roles.length > 0) {
+                        setSelectedRole(data.roles[0]);
+                    } else if (data.rol) {
+                        setSelectedRole(data.rol);
+                    }
+
+                } else {
                     console.error("Usuario autenticado pero no encontrado en Firestore. Deslogueando...");
-                    signOut(auth); 
+                    signOut(auth);
                 }
             } else {
+                // Si no hay sesión, limpio todos los datos.
                 setUser(null);
                 setUserData(null);
+                setSelectedRole(null);
             }
             setLoading(false);
         });
         return () => unsubscribe();
     }, []);
 
+    // Muestro "Cargando..." mientras verifico la sesión.
     if (loading) {
         return <div className="min-h-screen flex items-center justify-center bg-[#cdcdcd] text-gray-700">Cargando...</div>;
     }
-    
+
+    // El contenedor principal de mi app.
     return (
         <div className="bg-[#c9c9c9] min-h-screen font-sans">
-             <Header user={user} userData={userData}/>
+             <Header user={user} userData={userData} selectedRole={selectedRole} setSelectedRole={setSelectedRole}/>
              <main>
-                {user && userData ? <Dashboard user={user} userData={userData} /> : <AuthPage />}
+                 {/* Si hay un usuario, muestro el Dashboard; si no, la página de Login. */}
+                 {user && userData ? <Dashboard user={user} userData={userData} selectedRole={selectedRole} /> : <AuthPage />}
              </main>
         </div>
     );

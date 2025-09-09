@@ -213,14 +213,14 @@ const Header = ({ user, userData, selectedRole, setSelectedRole }) => {
     );
 };
 
-const ProjectLogModal = ({ project, user, userData, onClose }) => {
+const ProjectLogModal = ({ project, user, userData, onClose, selectedRole }) => {
     const [logEntries, setLogEntries] = useState([]);
     const [newNote, setNewNote] = useState('');
     const [newFile, setNewFile] = useState(null);
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
-    const isSupervisor = userData?.roles?.includes("supervisor") || userData?.rol === "supervisor";
+    const canWrite = selectedRole !== "supervisor";
 
     useEffect(() => {
         const q = query(collection(db, "bitacoras_proyectos"), where("projectId", "==", project.id), orderBy("fecha", "asc"));
@@ -296,7 +296,7 @@ const ProjectLogModal = ({ project, user, userData, onClose }) => {
                     }
                 </div>
 
-          {!isSupervisor && (
+                {canWrite && (
                     <div className="border-t pt-4">
                         <textarea value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="Añadir nueva nota..." rows="3" className="w-full p-2 border rounded-md"></textarea>
                         <input type="file" id={`file-input-${project.id}`} onChange={handleFileChange} className="w-full text-sm mt-2"/>
@@ -801,7 +801,7 @@ const NewProjectForm = ({ onProjectAdded }) => {
     );
 };
 
-const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) => {
+const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, user, userData }) => {
     const [modalProject, setModalProject] = useState(null);
     const [modalType, setModalType] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
@@ -1047,20 +1047,6 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
         });
     };
 
-    const getDueDateColor = (timestamp) => {
-        if (!timestamp) return 'text-gray-500';
-        const dueDate = timestamp.toDate();
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        
-        const diffTime = dueDate.getTime() - today.getTime();
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-        if (diffDays < 0) return 'text-red-600 font-bold';
-        if (diffDays <= 3) return 'text-orange-500 font-semibold';
-        return 'text-gray-600';
-    };
-
     const handleActivateProject = async (projectId) => {
         await updateDoc(doc(db, "proyectos", projectId), { estado: 'Activo', estadoCliente: 'Activo' });
     };
@@ -1100,47 +1086,125 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
             <div className="overflow-x-auto bg-white rounded-lg shadow">
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
-                        <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Apertura</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
-                            {userRole === 'administrador' && (
-                                <>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Proveedor</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nº Proy. Lab.</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Comentarios</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">PO Prov.</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Precio</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Costo</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Docs Cliente</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Docs Proveedor</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fact. Cliente</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fact. Proveedor</th>
-                                </>
-                            )}
-                            {userRole === 'supervisor' && (
-                                <>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Límite</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado Técnicos</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notas Supervisor</th>
-                                </>
-                            )}
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
-                        </tr>
+                        {userRole === 'supervisor' && supervisorView === 'new' && (
+                            <tr>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Apertura</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notas</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                            </tr>
+                        )}
+
+                        {userRole === 'supervisor' && supervisorView === 'assigned' && (
+                            <tr>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Técnico</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Asignación</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Límite</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Info Ecotech</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado Entrega</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notas</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                            </tr>
+                        )}
+
+                        {userRole === 'administrador' && (
+                            <tr>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Apertura</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Proveedor</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nº Proy. Lab.</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Comentarios</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">PO Prov.</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Precio</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Costo</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Docs Cliente</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Docs Proveedor</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fact. Cliente</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fact. Proveedor</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                            </tr>
+                        )}
                     </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
+
+                        <tbody className="bg-white divide-y divide-gray-200">
                         {currentItems.map(project => {
-                            const isAssigned = project.asignadoTecnicosIds && project.asignadoTecnicosIds.length > 0;
+
+                            let deliveryStatus = 'A Tiempo';
+                            if (userRole === 'supervisor' && supervisorView === 'assigned') {
+                                const today = new Date(); today.setHours(0,0,0,0);
+                                const dueDate = project.fechaEntregaInterna?.toDate();
+                                if (!dueDate) {
+                                    deliveryStatus = 'Sin Fecha';
+                                } else {
+                                    dueDate.setHours(0,0,0,0);
+                                    if (dueDate < today) deliveryStatus = 'Atrasado';
+                                }
+                            }
+                            const isEcotech = project.proveedorNombre?.toLowerCase().includes('ecotech');
+
                             return (
-                                 <tr key={project.id}>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{formatDate(project.fechaApertura)}</td>
-                                    <td className="px-4 py-2 whitespace-nowrap text-sm font-medium">{project.npu}</td>
-                                    <td className="px-4 py-2 whitespace-nowrap text-sm">{project.clienteNombre}</td>
-                                    <td className="px-4 py-2 whitespace-nowrap text-sm">{project.servicioNombre}</td>
+                                <tr key={project.id}>
+                                    {userRole === 'supervisor' && supervisorView === 'new' && (
+                                        <>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm">{formatDate(project.fechaApertura)}</td>
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm font-medium">{project.npu}</td>
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{project.clienteNombre}</td>
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{project.servicioNombre}</td>
+                                            <td className="px-4 py-2 text-sm text-gray-600">
+                                                <button onClick={() => setNoteModalProject(project)} className="hover:text-blue-600 text-left w-full">
+                                                    <p className="w-32 truncate" title={project.notasSupervisor || "Añadir nota"}>{project.notasSupervisor || <span className="text-gray-400 italic">Añadir nota...</span>}</p>
+                                                </button>
+                                            </td>
+                                            <td className="px-4 py-2"><button onClick={() => { setModalProject(project); setModalType('assign'); }} className="text-indigo-600">Asignar</button></td>
+                                        </>
+                                    )}
+
+                                    {userRole === 'supervisor' && supervisorView === 'assigned' && (
+                                        <>
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm font-medium">{project.npu}</td>
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{project.clienteNombre}</td>
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{project.servicioNombre}</td>
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{techniciansMap[project.asignadoTecnicosIds?.[0]] || '---'}</td>
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{formatDate(project.fechaAsignacionTecnico)}</td>
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{formatDate(project.fechaEntregaInterna)}</td>
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm">
+                                                {isEcotech ? (
+                                                    <div className="text-xs">
+                                                        <p><strong>Nº Proy:</strong> {project.numeroProyectoLaboratorio || 'N/A'}</p>
+                                                        <p><strong>Puntos:</strong> {project.puntosDeTrabajo || 'N/A'}</p>
+                                                        <p><strong>Estatus:</strong> {project.estatusEcotech || 'N/A'}</p>
+                                                    </div>
+                                                ) : 'N/A'}
+                                            </td>
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm"><StatusBadge status={deliveryStatus} /></td>
+                                            <td className="px-4 py-2 text-sm text-gray-600">
+                                                <button onClick={() => setNoteModalProject(project)} className="hover:text-blue-600 text-left w-full">
+                                                    <p className="w-32 truncate" title={project.notasSupervisor || "Añadir nota"}>{project.notasSupervisor || <span className="text-gray-400 italic">Añadir nota...</span>}</p>
+                                                </button>
+                                            </td>
+                                            <td className="px-4 py-2">
+                                                <div className="flex items-center space-x-4">
+                                                    <button onClick={() => { setModalProject(project); setModalType('assign'); }} className="text-indigo-600">Reasignar</button>
+                                                    <button onClick={() => { setModalProject(project); setModalType('log'); }} className="text-gray-600">Bitácora</button>
+                                                </div>
+                                            </td>
+                                        </>
+                                    )}
+
                                     {userRole === 'administrador' && (
                                         <>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm">{formatDate(project.fechaApertura)}</td>
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm font-medium">{project.npu}</td>
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{project.clienteNombre}</td>
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{project.servicioNombre}</td>
                                             <td className="px-4 py-2 whitespace-nowrap text-sm">{project.proveedorNombre}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm">{project.numeroProyectoLaboratorio || '---'}</td>
                                             <td className="px-6 py-4 text-sm text-gray-500" title={project.comentariosApertura}>
@@ -1152,39 +1216,22 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, user, userData }) 
                                             <td className="px-4 py-2"><div className="flex space-x-2">{project.urlCotizacionCliente && <a href={project.urlCotizacionCliente} target="_blank" rel="noopener noreferrer" className="text-blue-500">Cot</a>}{project.urlPOCliente && <a href={project.urlPOCliente} target="_blank" rel="noopener noreferrer" className="text-blue-500">PO</a>}</div></td>
                                             <td className="px-4 py-2"><div className="flex space-x-2">{project.urlCotizacionProveedor && <a href={project.urlCotizacionProveedor} target="_blank" rel="noopener noreferrer" className="text-blue-500">Cot</a>}{project.urlPOProveedor && <a href={project.urlPOProveedor} target="_blank" rel="noopener noreferrer" className="text-blue-500">PO</a>}</div></td>
                                             <td className="px-4 py-2 whitespace-nowrap text-sm">{invoicesMap[project.facturaClienteId] || '---'}</td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{invoicesMap[project.facturaProveedorId] || (project.proveedorNombre?.toLowerCase().trim() === "ecología y asesoría ambiental" ? 'N/A' : '---')}</td>
-                                        </>
-                                    )}
-                                    {userRole === 'supervisor' && (
-                                        <>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm"><span className={getDueDateColor(project.fechaEntregaInterna)}>{formatDate(project.fechaEntregaInterna)}</span></td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm">
-                                                <div className="flex flex-col space-y-1">
-                                                    {(project.asignadoTecnicosIds || []).map(techId => {
-                                                        const status = project.tecnicosStatus ? (project.tecnicosStatus[techId] || 'No Visto') : 'No Visto';
-                                                        const statusClass = status === 'En Proceso' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600';
-                                                        return (<span key={techId} className={`text-xs p-1 rounded ${statusClass}`}>{techniciansMap[techId] || 'Cargando...'}: {status}</span>);
-                                                    })}
-                                                </div>  
-                                            </td>
-                                            <td className="px-4 py-2 text-sm text-gray-600">
-                                                <button onClick={() => setNoteModalProject(project)} className="hover:text-blue-600 text-left w-full">
-                                                    <p className="w-32 truncate" title={project.notasSupervisor || "Añadir nota"}>
-                                                        {project.notasSupervisor || <span className="text-gray-400 italic">Añadir nota...</span>}
-                                                    </p>
-                                                </button>
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{invoicesMap[project.facturaProveedorId] || (project.proveedorNombre?.toLowerCase().trim() === "ecologia y asesoria ambiental" ? 'N/A' : '---')}</td>
+                                            <td className="px-4 py-2"><span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${project.estado === 'Activo' ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-800'}`}>{project.estado}</span></td>
+                                            <td className="px-4 py-2">
+                                                <div className="flex items-center space-x-4">
+                                                    {project.estado === 'Cotización' && <button onClick={() => handleActivateProject(project.id)} className="text-green-600">Activar</button>}
+                                                    <button onClick={() => { setModalProject(project); setModalType('manage'); }} className="text-indigo-600">Gestionar</button>
+                                                    {project.estado !== 'Terminado' && project.estado !== 'Archivado' && <button onClick={() => promptDeleteProject(project.id, project.npu)} className="text-red-600">Borrar</button>}
+                                                </div>
                                             </td>
                                         </>
                                     )}
-                                    <td className="px-4 py-2"><span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${project.estado === 'Activo' ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-800'}`}>{project.estado}</span></td>
                                     <td className="px-4 py-2">
                                         <div className="flex items-center space-x-4">
                                             {userRole === 'administrador' && project.estado === 'Cotización' && <button onClick={() => handleActivateProject(project.id)} className="text-green-600">Activar</button>}
                                             {userRole === 'administrador' && <button onClick={() => { setModalProject(project); setModalType('manage'); }} className="text-indigo-600">Gestionar</button>}
                                             {userRole === 'administrador' && project.estado !== 'Terminado' && project.estado !== 'Archivado' && <button onClick={() => promptDeleteProject(project.id, project.npu)} className="text-red-600">Borrar</button>}
-                                            
-                                            {userRole === 'supervisor' && <button onClick={() => { setModalProject(project); setModalType('assign'); }} className="text-indigo-600">{isAssigned ? 'Reasignar' : 'Asignar'}</button>}
-                                            {userRole === 'supervisor' && isAssigned && <button onClick={() => { setModalProject(project); setModalType('log'); }} className="text-gray-600">Bitácora</button>}
                                         </div>
                                     </td>
                                 </tr>
@@ -2237,85 +2284,184 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
     );
 };
 
+// Componente para agregar tabla de proyectos terminados al dashboard del supervisor
+const DeliveredProjectsTable = ({ projects }) => {
+    const [searchTerm, setSearchTerm] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(10);
+
+    const formatDate = (timestamp) => {
+        if (!timestamp) return '---';
+        const date = timestamp.toDate();
+        const userTimezoneOffset = date.getTimezoneOffset() * 60000;
+        const adjustedDate = new Date(date.getTime() + userTimezoneOffset);
+        return adjustedDate.toLocaleDateString('es-MX', { year: 'numeric', month: '2-digit', day: '2-digit' });
+    };
+
+    const filteredProjects = projects.filter(p =>
+        (p.npu && p.npu.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (p.clienteNombre && p.clienteNombre.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (p.servicioNombre && p.servicioNombre.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+
+    const indexOfLastItem = currentPage * itemsPerPage;
+    const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+    const currentItems = filteredProjects.slice(indexOfFirstItem, indexOfLastItem);
+    const totalPages = Math.ceil(filteredProjects.length / itemsPerPage);
+    const paginate = (pageNumber) => setCurrentPage(pageNumber);
+
+    return (
+        <div className="mt-6">
+            <div className="mb-4 flex flex-col md:flex-row justify-between items-center">
+                <input
+                    type="text"
+                    placeholder="Buscar por NPU, cliente o servicio..."
+                    className="w-full md:w-1/3 px-3 py-2 border border-gray-300 rounded-md mb-2 md:mb-0"
+                    onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                />
+                <div className="flex items-center">
+                    <span className="text-sm mr-2">Mostrar:</span>
+                    <select value={itemsPerPage} onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }} className="px-2 py-1 border border-gray-300 rounded-md">
+                        <option value={10}>10</option>
+                        <option value={25}>25</option>
+                        <option value={50}>50</option>
+                    </select>
+                </div>
+            </div>
+
+            <div className="overflow-x-auto bg-white rounded-lg shadow">
+                <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                        <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha de Entrega</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Documentos</th>
+                        </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                        {currentItems.map(project => (
+                            <tr key={project.id}>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{project.npu}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{project.clienteNombre}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{project.servicioNombre}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{formatDate(project.fechaFinTecnico2 || project.fechaFinTecnico1)}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-4">
+                                    {(project.urlNotaPdf2 || project.urlNotaPdf1) && <a href={project.urlNotaPdf2 || project.urlNotaPdf1} target="_blank" rel="noopener noreferrer" className="text-red-600 hover:text-red-800">Nota</a>}
+                                    {project.urlHeyzine && <a href={project.urlHeyzine} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800">Documento</a>}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            <div className="mt-4 flex justify-between items-center">
+                <span className="text-sm text-gray-700">Página {currentPage} de {totalPages}</span>
+                <div>
+                    <button onClick={() => paginate(currentPage - 1)} disabled={currentPage === 1} className="px-3 py-1 border rounded-md bg-white mr-2 disabled:opacity-50">Anterior</button>
+                    <button onClick={() => paginate(currentPage + 1)} disabled={currentPage === totalPages || totalPages === 0} className="px-3 py-1 border rounded-md bg-white disabled:opacity-50">Siguiente</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // El dashboard del Supervisor. Aquí ve los proyectos nuevos para asignar
 // y monitorea el progreso de los que ya están en proceso.
+// y los proyectos terminados tambien 
+
 const SupervisorDashboard = ({ user, userData }) => {
-    const [view, setView] = useState('new'); // 'new' o 'assigned'
-    const [allActiveProjects, setAllActiveProjects] = useState([]);
+    const [view, setView] = useState('new');
+    const [allProjects, setAllProjects] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [sortBy, setSortBy] = useState('fechaApertura');
-    const [sortOrder, setSortOrder] = useState('desc');
+    const [sortBy, setSortBy] = useState('fechaEntregaInterna'); 
+    const [sortOrder, setSortOrder] = useState('asc'); 
 
     useEffect(() => {
         setLoading(true);
-        const q = query(collection(db, "proyectos"), where("estado", "==", "Activo"));
-        
+        const q = query(collection(db, "proyectos"), where("estado", "!=", "Cotización"));
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
-            const projectsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setAllActiveProjects(projectsData);
-            setLoading(false);
-        }, (error) => {
-            console.error("Error fetching active projects for supervisor:", error);
+            setAllProjects(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
             setLoading(false);
         });
-        
         return () => unsubscribe();
     }, []);
 
-    const displayedProjects = React.useMemo(() => {
-        const filtered = allActiveProjects.filter(p => {
-            const hasAssignedTechnicians = p.asignadoTecnicosIds && p.asignadoTecnicosIds.length > 0;
-            if (view === 'new') return !hasAssignedTechnicians;
-            if (view === 'assigned') return hasAssignedTechnicians;
-            return false;
-        });
+    const { newProjects, assignedProjects, deliveredProjects } = React.useMemo(() => {
+        const newP = [];
+        let assignedP = [];
+        const deliveredP = [];
 
-        return filtered.sort((a, b) => {
-            const fieldA = a[sortBy];
-            const fieldB = b[sortBy];
-            
-            if (!fieldA) return 1;
-            if (!fieldB) return -1;
-
-            let comparison = 0;
-            if (fieldA.seconds > fieldB.seconds) {
-                comparison = 1;
-            } else if (fieldA.seconds < fieldB.seconds) {
-                comparison = -1;
+        allProjects.forEach(p => {
+            if (p.fechaFinTecnico1) {
+                deliveredP.push(p);
             }
-            return sortOrder === 'asc' ? comparison : -comparison;
+            if (p.estado === 'Activo') {
+                const hasAssignedTechnicians = p.asignadoTecnicosIds && p.asignadoTecnicosIds.length > 0;
+                if (hasAssignedTechnicians) {
+                    assignedP.push(p);
+                } else {
+                    newP.push(p);
+                }
+            }
         });
-    }, [allActiveProjects, view, sortBy, sortOrder]);
+        
+        assignedP.sort((a, b) => {
+            const fieldA = a[sortBy]?.toDate() || new Date(0);
+            const fieldB = b[sortBy]?.toDate() || new Date(0);
+            
+            if (fieldA < fieldB) return sortOrder === 'asc' ? -1 : 1;
+            if (fieldA > fieldB) return sortOrder === 'asc' ? 1 : -1;
+            return 0;
+        });
+
+        return { newProjects: newP, assignedProjects: assignedP, deliveredProjects: deliveredP };
+    }, [allProjects, sortBy, sortOrder]);
 
     return (
         <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-6">Panel de Supervisión</h1>
             <div className="mb-6 border-b border-gray-200">
                 <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-                    <button onClick={() => setView('new')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'new' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>Nuevos por Asignar</button>
+                    <button onClick={() => setView('new')} className={`relative whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'new' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>
+                        Nuevos por Asignar
+                        {newProjects.length > 0 && <span className="absolute top-2 -right-4 ml-2 px-2 py-0.5 text-xs font-bold text-white bg-red-500 rounded-full">{newProjects.length}</span>}
+                    </button>
                     <button onClick={() => setView('assigned')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'assigned' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>Asignados y en Proceso</button>
+                    <button onClick={() => setView('delivered')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'delivered' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>
+                        Entregados
+                    </button>
                 </nav>
             </div>
+            
+            {loading ? <p>Cargando proyectos...</p> : (
+                <>
+                    {view === 'assigned' && (
+                        <div className="flex justify-end items-center mb-4 space-x-4">
+                            <label htmlFor="sort-by" className="text-sm font-medium text-gray-700">Ordenar por:</label>
+                            <select id="sort-by" value={sortBy} onChange={e => setSortBy(e.target.value)} className="border-gray-300 rounded-md shadow-sm p-2 text-sm">
+                                <option value="fechaEntregaInterna">Fecha Límite</option>
+                                <option value="fechaAsignacionTecnico">Fecha de Asignación</option>
+                            </select>
+                            <button onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')} className="p-2 border rounded-md text-sm bg-white shadow-sm hover:bg-gray-50">
+                                {sortOrder === 'asc' ? 'Ascendente ↑' : 'Descendente ↓'}
+                            </button>
+                        </div>
+                    )}
 
-            <div className="flex justify-end items-center mb-4">
-                <label htmlFor="sort-by" className="text-sm font-medium text-gray-700 mr-2">Ordenar por:</label>
-                <select id="sort-by" value={sortBy} onChange={e => setSortBy(e.target.value)} className="border rounded-md p-1 text-sm">
-                    <option value="fechaApertura">Fecha de Apertura</option>
-                    <option value="fechaEntregaInterna">Fecha Límite</option>
-                </select>
-                <button onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')} className="ml-2 p-1 border rounded-md text-sm">
-                    {sortOrder === 'asc' ? '↑ Asc' : '↓ Desc'}
-                </button>
-            </div>
-
-            {loading ? <p>Cargando proyectos...</p> : <ProjectsTable projects={displayedProjects} onUpdateProject={() => {}} userRole="supervisor" user={user} userData={userData} />}
+                    {view === 'new' && <ProjectsTable projects={newProjects} onUpdateProject={() => {}} userRole="supervisor" supervisorView="new" user={user} userData={userData} />}
+                    {view === 'assigned' && <ProjectsTable projects={assignedProjects} onUpdateProject={() => {}} userRole="supervisor" supervisorView="assigned" user={user} userData={userData} />}
+                    {view === 'delivered' && <DeliveredProjectsTable projects={deliveredProjects} />}
+                </>
+            )}
         </div>
     );
 };
 
 // El dashboard del Técnico. Su lista de tareas pendientes y en proceso.
 // Desde aquí empieza a trabajar, usa la bitácora y finaliza sus tareas.
-const TecnicoDashboard = ({ user, userData }) => {
+const TecnicoDashboard = ({ user, userData, selectedRole }) => {
     const [view, setView] = useState('new');
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -2370,14 +2516,15 @@ const TecnicoDashboard = ({ user, userData }) => {
                     onUpdateProject={() => {}} 
                     user={user} 
                     userData={userData} 
-                    handleStartProject={handleStartProject} 
+                    handleStartProject={handleStartProject}
+                    selectedRole={selectedRole} 
                 />
             )}
         </div>
     );
 };
 
-const TecnicoProjectsTable = ({ projects, onUpdateProject, user, userData, handleStartProject }) => {
+const TecnicoProjectsTable = ({ projects, onUpdateProject, user, userData, handleStartProject, selectedRole }) => {
     const [modalProject, setModalProject] = useState(null);
     const [modalType, setModalType] = useState(''); // 'task' o 'log'
 
@@ -2561,7 +2708,7 @@ const TecnicoProjectsTable = ({ projects, onUpdateProject, user, userData, handl
                 </table>
             </div>
             {modalProject && modalType === 'task' && <ManageTaskModal project={modalProject} onClose={() => setModalProject(null)} onFinalized={onUpdateProject} />}
-            {modalProject && modalType === 'log' && <ProjectLogModal project={modalProject} user={user} userData={userData} onClose={() => setModalProject(null)} />}
+            {modalProject && modalType === 'log' && <ProjectLogModal project={modalProject} user={user} userData={userData} onClose={() => setModalProject(null)} selectedRole={selectedRole} />}
         </>
     );
 };
@@ -3377,7 +3524,7 @@ const Dashboard = ({ user, userData, selectedRole }) => {
             case 'supervisor':
                 return <SupervisorDashboard user={user} userData={userData} />;
             case 'tecnico':
-                return <TecnicoDashboard user={user} userData={userData} />;
+                return <TecnicoDashboard user={user} userData={userData} selectedRole={selectedRole} />;
             case 'finanzas':
                 return <FinanzasDashboard user={user} userData={userData} />;
             case 'practicante':

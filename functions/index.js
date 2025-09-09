@@ -1,121 +1,76 @@
-// functions/index.js
-
-// Importo las herramientas de Firebase Functions,
-// la base de datos y axios para hablar con Slack.
+// functions/index.js (Versión Final con Notificaciones por Email)
 
 const {onDocumentCreated, onDocumentUpdated} =
  require("firebase-functions/v2/firestore");
 const {log, error} = require("firebase-functions/logger");
-const {defineString} = require("firebase-functions/params");
 const admin = require("firebase-admin");
-const axios = require("axios");
 
 admin.initializeApp();
 
-// Aquí defino que mi Bot Token de Slack
-// es un secreto que se guarda en Firebase.
-const slackBotToken = defineString("SLACK_BOT_TOKEN");
-
-// Esta función usa el email de un usuario
-// para preguntarle a Slack cuál es su ID de usuario.
-// Es la clave para poder enviarles mensajes directos.
+// --- FUNCIONES AUXILIARES ---
 
 /**
- * @param {string} email
- * @return {string|null}
- */
-async function getSlackUserIdByEmail(email) {
-  const token = slackBotToken.value();
-  if (!token) {
-    error("El Bot Token de Slack no está configurado.");
-    return null;
-  }
-  try {
-    const response = await axios.get(
-        "https://slack.com/api/users.lookupByEmail", {
-          headers: {Authorization: `Bearer ${token}`},
-          params: {email},
-        },
-    );
-    if (response.data.ok) {
-      return response.data.user.id;
-    }
-    log("No se encontró usuario de Slack para el email:", email);
-    return null;
-  } catch (err) {
-    error("Error al buscar usuario en Slack:", err.response?.data ||
-       err.message);
-    return null;
-  }
-}
-
-// Esta es mi función principal para enviar
-//  un Mensaje Directo a un ID de usuario de Slack.
-
-/**
- * @param {string} slackUserId
- * @param {string} text
- * @return {Promise}
- */
-async function sendSlackDM(slackUserId, text) {
-  const token = slackBotToken.value();
-  if (!token || !slackUserId) {
-    return Promise.resolve();
-  }
-  try {
-    await axios.post("https://slack.com/api/chat.postMessage", {
-      channel: slackUserId,
-      text: text,
-    }, {
-      headers: {Authorization: `Bearer ${token}`},
-    });
-  } catch (err) {
-    error(`Error al enviar DM al usuario ${slackUserId}:`,
-        err.response?.data || err.message);
-  }
-}
-
-// Una función útil para obtener los datos de cualquier
-//  usuario de mi base de datos de Firebase.
-/**
- * @param {string} firebaseUserId
- * @return {object|null}
+ * Obtiene los datos de un usuario desde Firestore.
+ * @param {string} firebaseUserId El UID del usuario en Firebase.
+ * @return {object|null} Los datos del usuario o null.
  */
 async function getUserData(firebaseUserId) {
-  const userDoc = await admin.firestore()
-      .collection("usuarios").doc(firebaseUserId).get();
+  const userDoc =
+   await admin.firestore().collection("usuarios").doc(firebaseUserId).get();
   return userDoc.exists ? userDoc.data() : null;
 }
 
-// Esta función busca a todos los usuarios que tengan un rol específico.
-// Es compatible con el sistema nuevo (lista de 'roles') y el antiguo ('rol').
 /**
- * @param {string} role
- * @return {Array<object>}
+ * Obtiene todos los usuarios de un rol específico,
+ *  compatible con 'rol' y 'roles'.
+ * @param {string} role El rol a buscar (ej. "supervisor").
+ * @return {Array<object>} Una lista de los datos de los usuarios.
  */
 async function getUsersDataByRole(role) {
   const usersRef = admin.firestore().collection("usuarios");
-
   const singleRoleQuery = usersRef.where("rol", "==", role).get();
   const multiRoleQuery = usersRef.where("roles", "array-contains", role).get();
-
   const [singleRoleSnapshot, multiRoleSnapshot] = await Promise.all([
     singleRoleQuery,
     multiRoleQuery,
   ]);
-
   const usersMap = new Map();
   singleRoleSnapshot.forEach((doc) => usersMap.set(doc.id, doc.data()));
   multiRoleSnapshot.forEach((doc) => usersMap.set(doc.id, doc.data()));
-
   return Array.from(usersMap.values());
 }
 
-// Estas dos funciones nuevas borran o
-// archivan un archivo en Storage a partir de su URL.
-// Las uso para la limpieza automática.
+
 /**
- * @param {string} fileUrl
+ * Crea un documento en la colección 'mail' para que la extensión lo envíe.
+ * @param {Array<string>} emails - La lista de correos de los destinatarios.
+ * @param {string} subject - El asunto del correo.
+ * @param {string} html - El cuerpo del correo en formato HTML.
+ */
+async function sendEmail(emails, subject, html) {
+  if (!emails || emails.length === 0) {
+    log("No hay destinatarios para enviar el correo.");
+    return;
+  }
+  try {
+    // La extensión "Trigger Email" vigila esta colección.
+    await admin.firestore().collection("mail").add({
+      to: emails,
+      message: {
+        subject: subject,
+        html: html, // Nos aseguramos de que este campo siempre tenga contenido.
+      },
+    });
+    log(`Correo para '${subject}' encolado para ${emails.join(", ")}.`);
+  } catch (err) {
+    error("Error al encolar correo:", err);
+  }
+}
+
+
+/**
+ * Borra un archivo en Cloud Storage a partir de su URL de descarga.
+ * @param {string} fileUrl La URL completa del archivo a borrar.
  */
 async function deleteFileFromUrl(fileUrl) {
   if (!fileUrl || !fileUrl.includes("firebasestorage.googleapis.com")) {
@@ -126,13 +81,11 @@ async function deleteFileFromUrl(fileUrl) {
     const bucket = admin.storage().bucket();
     const decodedUrl = decodeURIComponent(fileUrl);
     const filePath = decodedUrl.split("/o/")[1].split("?")[0];
-
     await bucket.file(filePath).delete();
     log(`Archivo borrado exitosamente: ${filePath}`);
   } catch (err) {
     if (err.code === 404) {
-      log(`El archivo no se encontró (probablemente ya fue borrado):
-         ${fileUrl}`);
+      log(`El archivo no se encontró: ${fileUrl}`);
     } else {
       error(`Error al borrar el archivo ${fileUrl}:`, err);
     }
@@ -140,7 +93,8 @@ async function deleteFileFromUrl(fileUrl) {
 }
 
 /**
- * @param {string} fileUrl
+ * Cambia la clase de almacenamiento de un archivo a COLDLINE.
+ * @param {string} fileUrl La URL completa del archivo a archivar.
  */
 async function archiveFileToColdline(fileUrl) {
   if (!fileUrl || !fileUrl.includes("firebasestorage.googleapis.com")) {
@@ -151,7 +105,6 @@ async function archiveFileToColdline(fileUrl) {
     const bucket = admin.storage().bucket();
     const decodedUrl = decodeURIComponent(fileUrl);
     const filePath = decodedUrl.split("/o/")[1].split("?")[0];
-
     await bucket.file(filePath).setStorageClass("COLDLINE");
     log(`Archivo archivado a COLDLINE: ${filePath}`);
   } catch (err) {
@@ -159,158 +112,160 @@ async function archiveFileToColdline(fileUrl) {
   }
 }
 
-// -- MIS "VIGILANTES" (TRIGGERS) --
+// --- TRIGGERS ---
 
-// 1. Vigilante de la Bitácora:
-// Se activa cada vez que se crea un nuevo documento
-// en "bitacoras_proyectos".
-// Su trabajo es avisar a los supervisores por Slack.
-exports.notifyNewLogEntry = onDocumentCreated("bitacoras_proyectos/{logId}",
-    async (event) => {
-      const snap = event.data;
-      if (!snap) return;
+exports.notifyNewLogEntry =
+ onDocumentCreated("bitacoras_proyectos/{logId}", async (event) => {
+   const snap = event.data;
+   if (!snap) return;
+   const logData = snap.data();
+   const projectDoc =
+   await admin.firestore().collection("proyectos").doc(logData.projectId).get();
+   if (!projectDoc.exists) return;
+   const projectData = projectDoc.data();
+   const supervisors = await getUsersDataByRole("supervisor");
+   const emails = supervisors.map((user) => user.email).filter(Boolean);
 
-      const logData = snap.data();
-      const projectDoc = await admin.firestore()
-          .collection("proyectos").doc(logData.projectId).get();
-      if (!projectDoc.exists) return;
+   const subject = `Nueva Bitácora en el Proyecto ${projectData.npu}`;
+   const html = `<p>Hola,</p><p>El usuario <strong>${logData.autorNombre}
+   </strong> ha añadido una nueva nota en la bitácora del proyecto <strong>
+   ${projectData.npu}
+   </strong>.</p><p>Por favor, revisa la comunicación en el portal.</p>`;
+   await sendEmail(emails, subject, html);
+ });
 
-      const projectData = projectDoc.data();
-      const message = `📝 *Nueva Bitácora en ${projectData.npu}* | ` +
-        `*${logData.autorNombre}* añadió una nota.`;
+exports.notifyProjectUpdate =
+ onDocumentUpdated("proyectos/{projectId}", async (event) => {
+   if (!event.data) {
+     log("No data associated with the event.");
+     return;
+   }
+   const beforeData = event.data.before.data();
+   const afterData = event.data.after.data();
 
-      // Notificar a todos los supervisores
-      const supervisors = await getUsersDataByRole("supervisor");
-      for (const supervisor of supervisors) {
-        const slackUserId = await getSlackUserIdByEmail(supervisor.email);
-        if (slackUserId) {
-          await sendSlackDM(slackUserId, message);
-        }
-      }
-    });
+   // Función auxiliar para notificar a un rol completo
+   const notifyRole = async (role, subject, html) => {
+     const users = await getUsersDataByRole(role);
+     const emails = users.map((user) => user.email).filter(Boolean);
+     await sendEmail(emails, subject, html);
+   };
 
-// 2. Vigilante de los Proyectos:
-// Este es el más importante. Se activa cada vez que un proyecto se actualiza.
-// Revisa qué cambió (ej. el estado)
-// para decidir qué notificación enviar y a quién.
-// También se encarga de borrar/archivar archivos según el estado del proyecto.
-exports.notifyProjectUpdate = onDocumentUpdated("proyectos/{projectId}",
-    async (event) => {
-      if (!event.data) return;
+   // Función auxiliar para notificar a una lista específica de usuarios por ID
+   const notifyUsers = async (firebaseUserIds, subject, html) => {
+     const emails = [];
+     for (const userId of firebaseUserIds) {
+       const userData = await getUserData(userId);
+       if (userData && userData.email) {
+         emails.push(userData.email);
+       }
+     }
+     await sendEmail(emails, subject, html);
+   };
 
-      const beforeData = event.data.before.data();
-      const afterData = event.data.after.data();
+   // --- LÓGICA DE NOTIFICACIONES POR CAMBIO DE ESTADO ---
 
-      const notifyRole = async (role, message) => {
-        const users = await getUsersDataByRole(role);
-        for (const user of users) {
-          const slackUserId = await getSlackUserIdByEmail(user.email);
-          if (slackUserId) await sendSlackDM(slackUserId, message);
-        }
-      };
+   // A. Proyecto Activado -> Notificar a Supervisores
+   if (beforeData.estado === "Cotización" && afterData.estado === "Activo") {
+     const subject = `Proyecto Activado: ${afterData.npu}`;
+     const html = `<p>El proyecto <strong>${afterData.npu}</strong>
+      (${afterData.clienteNombre})
+       ha sido activado y está listo para ser asignado a un técnico.</p>`;
+     await notifyRole("supervisor", subject, html);
+   }
 
-      const notifyUsers = async (firebaseUserIds, message) => {
-        for (const userId of firebaseUserIds) {
-          const userData = await getUserData(userId);
-          if (userData?.email) {
-            const slackUserId = await getSlackUserIdByEmail(userData.email);
-            if (slackUserId) await sendSlackDM(slackUserId, message);
-          }
-        }
-      };
+   // B. Técnico Inicia Tarea -> Notificar a Supervisores
+   const techStatusAfter = afterData.tecnicosStatus || {};
+   for (const techId in techStatusAfter) {
+     if (
+       techStatusAfter[techId] === "En Proceso" &&
+       (beforeData.tecnicosStatus?.[techId] !== "En Proceso")
+     ) {
+       const techData = await getUserData(techId);
+       const techName = techData ? techData.nombreCompleto : "un técnico";
+       const subject = `Tarea Iniciada en ${afterData.npu}`;
+       const html = `<p>El técnico <strong>${techName}
+       </strong> ha comenzado a trabajar en el proyecto <strong>
+       ${afterData.npu}</strong>.</p>`;
+       await notifyRole("supervisor", subject, html);
+       break; // Solo notificar una vez por actualización
+     }
+   }
 
-      if (beforeData.estado === "Cotización" && afterData.estado === "Activo") {
-        const message = `✅ *Proyecto Activado* |
-         El proyecto *${afterData.npu}* ` +
-          `(${afterData.clienteNombre}) está listo para ser asignado.`;
-        await notifyRole("supervisor", message);
-      }
+   // C. Tarea Finalizada -> Notificar a Supervisores y Practicantes
+   if (
+     beforeData.estado !== "Terminado Internamente" &&
+     afterData.estado === "Terminado Internamente"
+   ) {
+     const subject = `Tarea Finalizada: ${afterData.npu}`;
+     const html = `<p>El proyecto <strong>${afterData.npu}
+     </strong> ha sido completado por el equipo técnico y 
+     está listo para la preparación de documentos.</p>`;
+     await notifyRole("supervisor", subject, html);
+     await notifyRole("practicante", subject, html);
+   }
 
-      const techStatusAfter = afterData.tecnicosStatus || {};
-      for (const techId in techStatusAfter) {
-        if (
-          techStatusAfter[techId] === "En Proceso" &&
-          (beforeData.tecnicosStatus?.[techId] !== "En Proceso")
-        ) {
-          const techData = await getUserData(techId);
-          const techName = techData ? techData.nombreCompleto : "un técnico";
-          const message = `▶️ *Tarea Iniciada* |
-           *${techName}* ha comenzado a ` +
-            `trabajar en el proyecto *${afterData.npu}*.`;
-          await notifyRole("supervisor", message);
-          break;
-        }
-      }
+   // D. Listo para Facturar -> Notificar a Finanzas
+   if (
+     beforeData.estado !== "Pendiente de Factura" &&
+     afterData.estado === "Pendiente de Factura"
+   ) {
+     const subject = `Proyecto Listo para Facturar: ${afterData.npu}`;
+     const html = `<p>El proyecto <strong>${afterData.npu}
+     </strong> ha sido aprobado y está pendiente de gestión de factura.</p>`;
+     await notifyRole("finanzas", subject, html);
+   }
 
-      if (
-        beforeData.estado !== "Terminado Internamente" &&
-        afterData.estado === "Terminado Internamente"
-      ) {
-        const message = `🏁 *Tarea Finalizada* |
-         El proyecto *${afterData.npu}* ` +
-          `está listo para documentación.`;
-        await notifyRole("supervisor", message);
-        await notifyRole("practicante", message);
-      }
+   // E. Proyecto Facturado -> Notificar a Supervisores y Finanzas
+   if (beforeData.estado !== "Facturado" && afterData.estado === "Facturado") {
+     const subject = `Proyecto Facturado: ${afterData.npu}`;
+     const html = `<p>Se han gestionado las facturas para el proyecto <strong>
+     ${afterData.npu}</strong>.</p>`;
+     await notifyRole("supervisor", subject, html);
+     await notifyRole("finanzas", subject, html);
+   }
 
-      if (
-        beforeData.estado !== "Pendiente de Factura" &&
-        afterData.estado === "Pendiente de Factura"
-      ) {
-        const message = `💰 *Listo para Facturar* |
-         El proyecto *${afterData.npu}* ` +
-          `ha sido aprobado y está pendiente de gestión de factura.`;
-        await notifyRole("finanzas", message);
-      }
+   // F. Nueva Asignación -> Notificar a los nuevos técnicos asignados
+   const techsBefore = beforeData.asignadoTecnicosIds || [];
+   const techsAfter = afterData.asignadoTecnicosIds || [];
+   const newTechs = techsAfter.filter((id) => !techsBefore.includes(id));
 
-      if (beforeData.estado !== "Facturado" &&
-         afterData.estado === "Facturado") {
-        const message = `🧾 *Proyecto Facturado* |
-         Se han gestionado las facturas `+
-          `para el proyecto *${afterData.npu}*.`;
-        await notifyRole("supervisor", message);
-        await notifyRole("finanzas", message);
-      }
+   if (newTechs.length > 0) {
+     const subject = `Nueva Tarea Asignada: ${afterData.npu}`;
+     const html = `<p>Hola, se te ha asignado el proyecto <strong>
+     ${afterData.npu}</strong> (${afterData.servicioNombre})
+     . Por favor, revísalo en el portal.</p>`;
+     await notifyUsers(newTechs, subject, html);
+   }
+   // --- LÓGICA DE GESTIÓN DE ARCHIVOS ---
 
-      const techsBefore = beforeData.asignadoTecnicosIds || [];
-      const techsAfter = afterData.asignadoTecnicosIds || [];
-      const newTechs = techsAfter.filter((id) => !techsBefore.includes(id));
+   // G. Borrar evidencia del técnico cuando el Admin aprueba
+   if (
+     beforeData.estado === "En Revisión Final" &&
+     (afterData.estado === "Pendiente de Factura" ||
+       afterData.estado === "Archivado")
+   ) {
+     log(`Proyecto ${afterData.npu} aprobado. Borrando evidencias de técnico.`);
+     if (afterData.urlEvidenciaTecnico1) {
+       await deleteFileFromUrl(afterData.urlEvidenciaTecnico1);
+     }
+     if (afterData.urlEvidenciaTecnico2) {
+       await deleteFileFromUrl(afterData.urlEvidenciaTecnico2);
+     }
+   }
 
-      if (newTechs.length > 0) {
-        const message = `➡️ *Nueva Asignación* |
-         Se te ha asignado el proyecto ` +
-          `*${afterData.npu}* (${afterData.servicioNombre}).`;
-        await notifyUsers(newTechs, message);
-      }
-
-      if (
-        beforeData.estado === "En Revisión Final" &&
-        (afterData.estado === "Pendiente de Factura" ||
-           afterData.estado === "Archivado")
-      ) {
-        log(`Proyecto ${afterData.npu} aprobado.
-           Borrando evidencias de técnico.`);
-        if (afterData.urlEvidenciaTecnico1) {
-          await deleteFileFromUrl(afterData.urlEvidenciaTecnico1);
-        }
-        if (afterData.urlEvidenciaTecnico2) {
-          await deleteFileFromUrl(afterData.urlEvidenciaTecnico2);
-        }
-      }
-
-      if (beforeData.estado !== "Facturado" &&
-         afterData.estado === "Facturado") {
-        log(`Proyecto ${afterData.npu}
-           facturado. Archivando documentos iniciales.`);
-        const filesToArchive = [
-          afterData.urlCotizacionCliente,
-          afterData.urlPOCliente,
-          afterData.urlCotizacionProveedor,
-          afterData.urlPOProveedor,
-        ];
-        for (const fileUrl of filesToArchive) {
-          await archiveFileToColdline(fileUrl);
-        }
-      }
-    });
+   // H. Archivar documentos iniciales cuando el proyecto se factura
+   if (beforeData.estado !== "Facturado" && afterData.estado === "Facturado") {
+     log(`Proyecto ${afterData.npu}
+       facturado. Archivando documentos iniciales.`);
+     const filesToArchive = [
+       afterData.urlCotizacionCliente,
+       afterData.urlPOCliente,
+       afterData.urlCotizacionProveedor,
+       afterData.urlPOProveedor,
+     ];
+     for (const fileUrl of filesToArchive) {
+       await archiveFileToColdline(fileUrl);
+     }
+   }
+ });
 

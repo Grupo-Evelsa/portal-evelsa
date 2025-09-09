@@ -84,6 +84,27 @@ const Alert = ({ message, type, onClose }) => {
     );
 };
 
+
+/**
+ * Calcula una fecha futura añadiendo días hábiles (lunes a viernes).
+ * @param {Date} startDate La fecha de inicio.
+ * @param {number} days El número de días hábiles a añadir.
+ * @return {Date} La fecha futura.
+ */
+const addBusinessDays = (startDate, days) => {
+    if (!startDate) return null;
+    let currentDate = new Date(startDate);
+    let addedDays = 0;
+    while (addedDays < days) {
+        currentDate.setDate(currentDate.getDate() + 1);
+        const dayOfWeek = currentDate.getDay();
+        if (dayOfWeek !== 0 && dayOfWeek !== 6) { // 0 = Domingo, 6 = Sábado
+            addedDays++;
+        }
+    }
+    return currentDate;
+};
+
 // Mi modal de confirmación genérico para acciones simples (ej. "¿Estás seguro?").
 const ConfirmationModal = ({ title, message, onConfirm, onCancel, confirmText = "Confirmar", cancelText = "Cancelar", confirmColor = "bg-green-600" }) => {
     return (
@@ -1807,6 +1828,8 @@ const DirectivoDashboard = () => {
     const [error, setError] = useState('');
     const [dashboardData, setDashboardData] = useState(null);
     const [view, setView] = useState('kpis');
+    const [opSortBy, setOpSortBy] = useState('sortOrder');
+    const [opSortOrder, setOpSortOrder] = useState('asc');
 
     /**
      * @param {Array} projects
@@ -1815,7 +1838,7 @@ const DirectivoDashboard = () => {
      */
 
 
-    const processDataForDashboard = (projects, invoices, technicians) => {
+    const processDataForDashboard = (projects, invoices, technicians, sortBy, sortOrder) => {
         const currentYear = new Date().getFullYear();
         const currentMonth = new Date().getMonth();
         const labels = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -1941,7 +1964,19 @@ const DirectivoDashboard = () => {
             return { ...p, status, sortOrder };
         });
 
-        operationalProjects.sort((a, b) => a.sortOrder - b.sortOrder);
+        operationalProjects.sort((a, b) => {
+            let fieldA = a[sortBy];
+            let fieldB = b[sortBy];
+
+            if (sortBy.includes('fecha')) {
+                fieldA = a[sortBy]?.toDate() || (sortOrder === 'asc' ? new Date('2999-12-31') : new Date(0));
+                fieldB = b[sortBy]?.toDate() || (sortOrder === 'asc' ? new Date('2999-12-31') : new Date(0));
+            }
+
+            if (fieldA < fieldB) return sortOrder === 'asc' ? -1 : 1;
+            if (fieldA > fieldB) return sortOrder === 'asc' ? 1 : -1;
+            return 0;
+        });
 
         const techniciansMap = {};
         technicians.forEach(t => {
@@ -1976,7 +2011,7 @@ const DirectivoDashboard = () => {
                 const allInvoices = invoicesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 const allTechnicians = techniciansSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 
-                const processedData = processDataForDashboard(allProjects, allInvoices, allTechnicians);
+                const processedData = processDataForDashboard(allProjects, allInvoices, allTechnicians, opSortBy, opSortOrder);
                 setDashboardData(processedData);
 
             } catch (err) {
@@ -1988,7 +2023,7 @@ const DirectivoDashboard = () => {
         };
 
         fetchData();
-    }, []);
+    }, [opSortBy, opSortOrder]);
 
     if (loading) {
         return <div className="text-center py-10">Calculando métricas... ⚙️</div>;
@@ -2058,15 +2093,35 @@ const DirectivoDashboard = () => {
 
             {view === 'operativo' && (
                 <div>
-                    <h2 className="text-2xl font-bold text-gray-800">Proyectos Activos y Pendientes de Entrega</h2>
-                    <p className="text-gray-600 mt-1">Lista ordenada de más a menos crítico según su fecha límite.</p>
-                    {dashboardData?.operationalProjects && (
-                        <OperationalTrackingTable
-                            projects={dashboardData.operationalProjects}
-                            techniciansMap={dashboardData.techniciansMap}
-                        />
-                    )}
-                </div>
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <h2 className="text-2xl font-bold text-gray-800">Proyectos Activos y Pendientes de Entrega</h2>
+                            <p className="text-gray-600 mt-1">Lista ordenada de los proyectos en curso.</p>
+                        </div>
+                        <div className="flex items-center space-x-4">
+                            <label className="text-sm font-medium">Ordenar por:</label>
+                            <select value={opSortBy} onChange={e => setOpSortBy(e.target.value)} className="border-gray-300 rounded-md p-2 text-sm">
+                                <option value="sortOrder">Criticidad</option>
+                                <option value="fechaEntregaInterna">Fecha Límite</option>
+                                <option value="fechaAsignacionTecnico">Fecha de Asignación</option>
+                            </select>
+                            <button onClick={() => setOpSortOrder(opSortOrder === 'asc' ? 'desc' : 'asc')} className="p-2 border rounded-md text-sm bg-white shadow-sm">
+                                {opSortOrder === 'asc' ? 'Ascendente ↑' : 'Descendente ↓'}
+                            </button>
+                        </div>
+                    </div>
+                
+                    <div>
+                        <h2 className="text-2xl font-bold text-gray-800">Proyectos Activos y Pendientes de Entrega</h2>
+                        <p className="text-gray-600 mt-1">Lista ordenada de más a menos crítico según su fecha límite.</p>
+                        {dashboardData?.operationalProjects && (
+                            <OperationalTrackingTable
+                                projects={dashboardData.operationalProjects}
+                                techniciansMap={dashboardData.techniciansMap}
+                            />
+                        )}
+                    </div>
+                </div>    
             )}
         </div>
     );
@@ -2124,69 +2179,120 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
 
+    const getProjectDisplayStatus = (project) => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        // El estado final 'Terminado' tiene la máxima prioridad.
+        if (project.estatusEcotech === 'Terminado') {
+            return { text: 'Terminado', class: 'bg-blue-100 text-blue-800' };
+        }
+
+        // Si se envió digitalmente, verificamos si está vencido el plazo del lab.
+        if (project.fechaEnvioDigital?.toDate) {
+            const deadlineLab = addBusinessDays(project.fechaEnvioDigital.toDate(), 15); // 3 semanas * 5 días hábiles
+            if (today > deadlineLab) {
+                return { text: 'Vencido Lab.', class: 'bg-red-100 text-red-800 font-bold' };
+            }
+            // Si no está vencido, mostramos el estado guardado.
+            return { text: project.estatusEcotech, class: 'bg-green-100 text-green-800' };
+        }
+
+        // Si tiene fecha de muestreo, verificamos si está vencido internamente.
+        if (project.fechaMuestreo?.toDate) {
+            const deadlineInternal = addBusinessDays(project.fechaMuestreo.toDate(), 3);
+            if (today > deadlineInternal) {
+                return { text: 'Vencido Internamente', class: 'bg-orange-100 text-orange-800 font-semibold' };
+            }
+            // Si no está vencido, mostramos el estado guardado.
+            return { text: project.estatusEcotech, class: 'bg-green-100 text-green-800' };
+        }
+
+        // Si no se cumple ninguna condición de tiempo, mostramos el estado guardado.
+        return { text: project.estatusEcotech || 'Pendiente', class: 'bg-gray-100 text-gray-700' };
+    };
+
+    // --- Reemplazar el componente ManageEcotechProjectModal (dentro de EcotechProjectsTable) ---
+
     const ManageEcotechProjectModal = ({ project, onClose, onFinalized }) => {
         const [labProjectNumber, setLabProjectNumber] = useState(project.numeroProyectoLaboratorio || '');
         const [workPoints, setWorkPoints] = useState(project.puntosDeTrabajo || '');
         const [notes, setNotes] = useState(project.notasEcotech || '');
-        const [status, setStatus] = useState(project.estatusEcotech || 'Pendiente');
         const [guiaEnvio, setGuiaEnvio] = useState(project.numeroGuiaEnvio || '');
         const [guiaRegreso, setGuiaRegreso] = useState(project.numeroGuiaRegreso || '');
+        // NUEVO: Estado para la nueva fecha de muestreo
+        const [fechaMuestreo, setFechaMuestreo] = useState('');
         const [loading, setLoading] = useState(false);
 
-        const handleSave = async () => {
+        // Función genérica para guardar cambios
+        const handleUpdate = async (updateData) => {
             setLoading(true);
             const projectRef = doc(db, "proyectos", project.id);
-            await updateDoc(projectRef, {
-                numeroProyectoLaboratorio: labProjectNumber,
-                puntosDeTrabajo: Number(workPoints) || 0,
-                notasEcotech: notes,
-                estatusEcotech: status,
-                numeroGuiaEnvio: guiaEnvio,
-                numeroGuiaRegreso: guiaRegreso
-            });
-            setLoading(false);
-            onFinalized();
-            onClose();
+            try {
+                await updateDoc(projectRef, updateData);
+                onFinalized();
+                onClose();
+            } catch (err) {
+                alert("Error al guardar los cambios.");
+            } finally {
+                setLoading(false);
+            }
         };
+
+        // Acciones específicas del flujo de trabajo
+        const handleStart = () => handleUpdate({ estatusEcotech: 'Pend. No de proyecto' });
+        const handleSaveSamplingDate = () => handleUpdate({ estatusEcotech: 'En Proceso', fechaMuestreo: Timestamp.fromDate(new Date(fechaMuestreo)) });
+        const handleSendDigital = () => handleUpdate({ estatusEcotech: 'Enviado Dig.', fechaEnvioDigital: Timestamp.now() });
+        const handleSaveGuides = () => handleUpdate({ numeroGuiaEnvio: guiaEnvio, numeroGuiaRegreso: guiaRegreso, estatusEcotech: 'Terminado' });
 
         return (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
-                <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
-                    <h3 className="text-lg font-bold mb-4">Gestionar Info de Laboratorio: {project.npu}</h3>
+                <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg">
+                    <h3 className="text-lg font-bold mb-2">Gestionar Proyecto Ecotech: {project.npu}</h3>
+                    <p className="text-sm text-gray-500 mb-6">Estado actual: <span className="font-bold">{project.estatusEcotech || 'Pendiente'}</span></p>
+                    
+                    {/* --- ACCIONES CONTEXTUALES --- */}
+                    {project.estatusEcotech === 'Pendiente' && (
+                        <button onClick={handleStart} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg mb-4">Empezar Tarea</button>
+                    )}
+                    {project.estatusEcotech === 'Pend. No de proyecto' && (
+                        <div className="p-4 border rounded-md bg-gray-50 mb-4">
+                            <label className="block text-sm font-medium text-gray-700">Introduce la Fecha de Muestreo</label>
+                            <input type="date" value={fechaMuestreo} onChange={e => setFechaMuestreo(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
+                            <button onClick={handleSaveSamplingDate} disabled={!fechaMuestreo} className="w-full mt-3 bg-blue-600 text-white font-bold py-2 rounded-lg disabled:bg-gray-400">Guardar Fecha y Poner "En Proceso"</button>
+                        </div>
+                    )}
+                    {project.estatusEcotech === 'En Proceso' && (
+                        <button onClick={handleSendDigital} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg mb-4">Marcar como "Enviado Digitalmente"</button>
+                    )}
+
+                    {/* --- FORMULARIO GENERAL (siempre visible) --- */}
                     <div className="space-y-4">
                         <div>
-                            <label className="block text-sm font-medium text-gray-700">Número de Proyecto (Laboratorio)</label>
+                            <label className="block text-sm font-medium">Número de Proyecto (Laboratorio)</label>
                             <input type="text" value={labProjectNumber} onChange={e => setLabProjectNumber(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700">Puntos de Trabajo Solicitados</label>
+                            <label className="block text-sm font-medium">Puntos de Trabajo</label>
                             <input type="number" value={workPoints} onChange={e => setWorkPoints(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700">Nº de Guía (Envío)</label>
+                            <label className="block text-sm font-medium">Nº de Guía (Envío)</label>
                             <input type="text" value={guiaEnvio} onChange={e => setGuiaEnvio(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700">Nº de Guía (Regreso)</label>
+                            <label className="block text-sm font-medium">Nº de Guía (Regreso)</label>
                             <input type="text" value={guiaRegreso} onChange={e => setGuiaRegreso(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700">Notas</label>
+                            <label className="block text-sm font-medium">Notas</label>
                             <textarea value={notes} onChange={e => setNotes(e.target.value)} rows="3" className="mt-1 block w-full px-3 py-2 border rounded-md"></textarea>
                         </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Estatus Interno</label>
-                            <select value={status} onChange={e => setStatus(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md">
-                                <option value="Pendiente">Pendiente</option>
-                                <option value="En Proceso">En Proceso</option>
-                                <option value="Muestreo Realizado">Muestreo Realizado</option>
-                                <option value="Resultados Entregados">Resultados Entregados</option>
-                            </select>
-                        </div>
                     </div>
+
                     <div className="mt-6 flex justify-end space-x-3">
-                        <button onClick={onClose} disabled={loading} className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">Cancelar</button>
-                        <button onClick={handleSave} disabled={loading} className="bg-[#b0ef26] hover:bg-[#9ac91e] text-black font-bold py-2 px-4 rounded">{loading ? 'Guardando...' : 'Guardar Información'}</button>
+                        <button onClick={onClose} className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">Cancelar</button>
+                        <button onClick={handleSaveGuides} className="bg-[#b0ef26] hover:bg-[#9ac91e] text-black font-bold py-2 px-4 rounded">{loading ? 'Guardando...' : 'Guardar y Marcar como Terminado'}</button>
                     </div>
                 </div>
             </div>
@@ -2242,8 +2348,10 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                        {currentItems.map(project => (
-                             <tr key={project.id}>
+                        {currentItems.map(project => {
+                            const displayStatus = getProjectDisplayStatus(project);
+                            return (
+                                <tr key={project.id}>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm">{project.npu}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm">{project.clienteNombre}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm">{project.servicioNombre}</td>
@@ -2254,12 +2362,17 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm">{project.numeroGuiaEnvio || '---'}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm">{project.numeroGuiaRegreso || '---'}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.estatusEcotech || 'Pendiente'}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                    <button onClick={() => setModalProject(project)} className="text-indigo-600 hover:text-indigo-900">Gestionar</button>
-                                </td>
-                            </tr>
-                        ))}
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${displayStatus.class}`}>
+                                            {displayStatus.text}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                        <button onClick={() => setModalProject(project)} className="text-indigo-600 hover:text-indigo-900">Gestionar</button>
+                                    </td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
@@ -2458,6 +2571,8 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
     const [view, setView] = useState('new');
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [sortBy, setSortBy] = useState('fechaEntregaInterna');
+    const [sortOrder, setSortOrder] = useState('asc');
 
     useEffect(() => {
         if (!user) return;
@@ -2486,6 +2601,19 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
         return () => unsubscribe();
     }, [view, user]);
 
+    const sortedProjects = React.useMemo(() => {
+        const sortable = [...projects];
+        sortable.sort((a, b) => {
+            const fieldA = a[sortBy]?.toDate() || new Date('2999-12-31');
+            const fieldB = b[sortBy]?.toDate() || new Date('2999-12-31');
+            if (fieldA < fieldB) return sortOrder === 'asc' ? -1 : 1;
+            if (fieldA > fieldB) return sortOrder === 'asc' ? 1 : -1;
+            return 0;
+        });
+        return sortable;
+    }, [projects, sortBy, sortOrder]);
+    
+
     const handleStartProject = async (project) => {
         const projectRef = doc(db, "proyectos", project.id);
         await updateDoc(projectRef, {
@@ -2495,7 +2623,19 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
 
     return (
         <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-6">Mis Tareas</h1>
+            <div className="flex justify-between items-center mb-6">
+                <h1 className="text-3xl font-bold text-gray-900">Mis Tareas</h1>
+                <div className="flex items-center space-x-4">
+                    <label className="text-sm font-medium">Ordenar por:</label>
+                    <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="border-gray-300 rounded-md p-2 text-sm">
+                        <option value="fechaEntregaInterna">Fecha Límite</option>
+                    </select>
+                    <button onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')} className="p-2 border rounded-md text-sm bg-white shadow-sm">
+                        {sortOrder === 'asc' ? 'Ascendente ↑' : 'Descendente ↓'}
+                    </button>
+                </div>
+            </div>
+            
             <div className="mb-6 border-b border-gray-200">
                 <nav className="-mb-px flex space-x-8" aria-label="Tabs">
                     <button onClick={() => setView('new')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'new' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>Nuevas Tareas</button>
@@ -2504,13 +2644,13 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
             </div>
 
             {loading ? <p>Cargando tareas...</p> : (
-                <TecnicoProjectsTable 
-                    projects={projects} 
-                    onUpdateProject={() => {}} 
-                    user={user} 
-                    userData={userData} 
+                <TecnicoProjectsTable
+                    projects={sortedProjects}
+                    onUpdateProject={() => {}}
+                    user={user}
+                    userData={userData}
                     handleStartProject={handleStartProject}
-                    selectedRole={selectedRole} 
+                    selectedRole={selectedRole}
                 />
             )}
         </div>
@@ -3307,12 +3447,14 @@ const InvoicesList = ({ invoiceType, onUpdate }) => {
 
 // El dashboard del Practicante. Recibe los proyectos terminados por los técnicos
 // para preparar los entregables finales para el cliente.
+
 const PracticanteDashboard = () => {
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);
     const [modalProject, setModalProject] = useState(null);
     const [submittingId, setSubmittingId] = useState(null);
     const [confirmingAction, setConfirmingAction] = useState(null);
+    const [sortOrder, setSortOrder] = useState('desc');
 
     const fetchProjects = () => {
         setLoading(true);
@@ -3334,6 +3476,21 @@ const PracticanteDashboard = () => {
         const unsubscribe = fetchProjects();
         return () => unsubscribe();
     }, []);
+
+    const sortedProjects = React.useMemo(() => {
+        const sortable = [...projects];
+        sortable.sort((a, b) => {
+            const dateA = a.fechaFinTecnico2 || a.fechaFinTecnico1;
+            const dateB = b.fechaFinTecnico2 || b.fechaFinTecnico1;
+            const fieldA = dateA?.toDate() || new Date(0);
+            const fieldB = dateB?.toDate() || new Date(0);
+
+            if (fieldA < fieldB) return sortOrder === 'asc' ? -1 : 1;
+            if (fieldA > fieldB) return sortOrder === 'asc' ? 1 : -1;
+            return 0;
+        });
+        return sortable;
+    }, [projects, sortOrder]);
 
     const ManageFinalDeliveryModal = ({ project, onClose, onFinalized }) => {
         const [heyzineUrl, setHeyzineUrl] = useState(project.urlHeyzine || '');
@@ -3399,7 +3556,7 @@ const PracticanteDashboard = () => {
     const handleSendToReview = async (projectId) => {
         setSubmittingId(projectId);
         try {
-            await updateDoc(doc(db, "proyectos", projectId), { 
+            await updateDoc(doc(db, "proyectos", projectId), {
                 estado: 'En Revisión Final',
                 motivoRechazo: deleteField()
             });
@@ -3422,8 +3579,17 @@ const PracticanteDashboard = () => {
 
     return (
         <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-6">Proyectos Listos para Documentar</h1>
-            {loading ? <p>Cargando...</p> : projects.length === 0 ? <p>No hay proyectos pendientes.</p> : (
+            <div className="flex justify-between items-center mb-6">
+                <h1 className="text-3xl font-bold text-gray-900">Proyectos Listos para Documentar</h1>
+                <div className="flex items-center space-x-2">
+                    <span className="text-sm font-medium">Ordenar por Fecha de Entrega:</span>
+                    <button onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')} className="p-2 border rounded-md text-sm bg-white shadow-sm">
+                        {sortOrder === 'asc' ? 'Más Antiguos Primero ↑' : 'Más Recientes Primero ↓'}
+                    </button>
+                </div>
+            </div>
+
+            {loading ? <p>Cargando...</p> : sortedProjects.length === 0 ? <p>No hay proyectos pendientes.</p> : (
                 <div className="overflow-x-auto bg-white rounded-lg shadow">
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">

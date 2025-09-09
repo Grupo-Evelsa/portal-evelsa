@@ -1,4 +1,4 @@
-// functions/index.js (Versión Final con Notificaciones por Email)
+// functions/index.js
 
 const {onDocumentCreated, onDocumentUpdated} =
  require("firebase-functions/v2/firestore");
@@ -22,7 +22,6 @@ async function getUserData(firebaseUserId) {
 
 /**
  * Obtiene todos los usuarios de un rol específico,
- *  compatible con 'rol' y 'roles'.
  * @param {string} role El rol a buscar (ej. "supervisor").
  * @return {Array<object>} Una lista de los datos de los usuarios.
  */
@@ -58,7 +57,7 @@ async function sendEmail(emails, subject, html) {
       to: emails,
       message: {
         subject: subject,
-        html: html, // Nos aseguramos de que este campo siempre tenga contenido.
+        html: html,
       },
     });
     log(`Correo para '${subject}' encolado para ${emails.join(", ")}.`);

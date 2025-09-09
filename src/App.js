@@ -1227,13 +1227,6 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
                                             </td>
                                         </>
                                     )}
-                                    <td className="px-4 py-2">
-                                        <div className="flex items-center space-x-4">
-                                            {userRole === 'administrador' && project.estado === 'Cotización' && <button onClick={() => handleActivateProject(project.id)} className="text-green-600">Activar</button>}
-                                            {userRole === 'administrador' && <button onClick={() => { setModalProject(project); setModalType('manage'); }} className="text-indigo-600">Gestionar</button>}
-                                            {userRole === 'administrador' && project.estado !== 'Terminado' && project.estado !== 'Archivado' && <button onClick={() => promptDeleteProject(project.id, project.npu)} className="text-red-600">Borrar</button>}
-                                        </div>
-                                    </td>
                                 </tr>
                             );
                         })}

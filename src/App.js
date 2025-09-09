@@ -822,7 +822,7 @@ const NewProjectForm = ({ onProjectAdded }) => {
     );
 };
 
-const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, user, userData }) => {
+const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, user, userData, selectedRole }) => {
     const [modalProject, setModalProject] = useState(null);
     const [modalType, setModalType] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
@@ -837,10 +837,9 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
         const fetchExtraData = () => {
             const qTechsOld = query(collection(db, "usuarios"), where("rol", "==", "tecnico"));
             const qTechsNew = query(collection(db, "usuarios"), where("roles", "array-contains", "tecnico"));
-
             const unsubTechs = onSnapshot(qTechsNew, (snapshotNew) => {
                 const techMap = {};
-                snapshotNew.forEach(doc => { techMap[doc.id] = doc.data().nombreCompleto; })
+                snapshotNew.forEach(doc => { techMap[doc.id] = doc.data().nombreCompleto; });
                 getDocs(qTechsOld).then(snapshotOld => {
                     snapshotOld.forEach(doc => {
                         if (!techMap[doc.id]) {
@@ -850,14 +849,12 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
                     setTechniciansMap(techMap);
                 });
             });
-
             const qInvoices = query(collection(db, "facturas"));
             const unsubInvoices = onSnapshot(qInvoices, (snapshot) => {
                 const invMap = {};
                 snapshot.forEach(doc => { invMap[doc.id] = doc.data().folio; });
                 setInvoicesMap(invMap);
             });
-
             return () => {
                 unsubTechs();
                 unsubInvoices();
@@ -1048,24 +1045,16 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
         );
     };
 
-    const filteredProjects = projects.filter(p => 
-        (p.npu && p.npu.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (p.clienteNombre && p.clienteNombre.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (p.servicioNombre && p.servicioNombre.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
-
+    const filteredProjects = projects.filter(p => (p.npu?.toLowerCase().includes(searchTerm.toLowerCase())) || (p.clienteNombre?.toLowerCase().includes(searchTerm.toLowerCase())) || (p.servicioNombre?.toLowerCase().includes(searchTerm.toLowerCase())));
     const currentItems = filteredProjects.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
     const totalPages = Math.ceil(filteredProjects.length / itemsPerPage);
-
     const paginate = (pageNumber) => setCurrentPage(pageNumber);
     const formatDate = (timestamp) => {
         if (!timestamp) return '---';
         const date = timestamp.toDate();
         const userTimezoneOffset = date.getTimezoneOffset() * 60000;
         const adjustedDate = new Date(date.getTime() + userTimezoneOffset);
-        return adjustedDate.toLocaleDateString('es-MX', {
-            year: 'numeric', month: '2-digit', day: '2-digit'
-        });
+        return adjustedDate.toLocaleDateString('es-MX', { year: 'numeric', month: '2-digit', day: '2-digit' });
     };
 
     const handleActivateProject = async (projectId) => {
@@ -1264,18 +1253,9 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
             </div>
             {modalProject && modalType === 'assign' && <AssignProjectModal project={modalProject} onClose={() => setModalProject(null)} onFinalized={onUpdateProject} />}
             {modalProject && modalType === 'manage' && <ManageProjectModal project={modalProject} onClose={() => setModalProject(null)} onFinalized={onUpdateProject} />}
-            {modalProject && modalType === 'log' && <ProjectLogModal project={modalProject} user={user} userData={userData} onClose={() => setModalProject(null)} />}
+            {modalProject && modalType === 'log' && <ProjectLogModal project={modalProject} user={user} userData={userData} onClose={() => setModalProject(null)} selectedRole={selectedRole} />}
             {noteModalProject && <SupervisorNoteModal project={noteModalProject} onClose={() => setNoteModalProject(null)} onUpdate={onUpdateProject} />}
-            {confirmingAction && (
-                <ConfirmationModal 
-                    title={confirmingAction.title}
-                    message={confirmingAction.message}
-                    onConfirm={confirmingAction.onConfirm}
-                    onCancel={() => setConfirmingAction(null)}
-                    confirmText={confirmingAction.confirmText}
-                    confirmColor={confirmingAction.confirmColor}
-                />
-            )}
+            {confirmingAction && <ConfirmationModal title={confirmingAction.title} message={confirmingAction.message} onConfirm={confirmingAction.onConfirm} onCancel={() => setConfirmingAction(null)} confirmText={confirmingAction.confirmText} confirmColor={confirmingAction.confirmColor} />}
         </>
     );
 };
@@ -2212,26 +2192,30 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
         return { text: project.estatusEcotech || 'Pendiente', class: 'bg-gray-100 text-gray-700' };
     };
 
-    // --- Reemplazar el componente ManageEcotechProjectModal (dentro de EcotechProjectsTable) ---
-
     const ManageEcotechProjectModal = ({ project, onClose, onFinalized }) => {
+        // Estados para los campos del formulario
         const [labProjectNumber, setLabProjectNumber] = useState(project.numeroProyectoLaboratorio || '');
         const [workPoints, setWorkPoints] = useState(project.puntosDeTrabajo || '');
         const [notes, setNotes] = useState(project.notasEcotech || '');
         const [guiaEnvio, setGuiaEnvio] = useState(project.numeroGuiaEnvio || '');
         const [guiaRegreso, setGuiaRegreso] = useState(project.numeroGuiaRegreso || '');
-        // NUEVO: Estado para la nueva fecha de muestreo
         const [fechaMuestreo, setFechaMuestreo] = useState('');
         const [loading, setLoading] = useState(false);
 
-        // Función genérica para guardar cambios
-        const handleUpdate = async (updateData) => {
+
+        const handleSaveChanges = async () => {
             setLoading(true);
             const projectRef = doc(db, "proyectos", project.id);
             try {
-                await updateDoc(projectRef, updateData);
-                onFinalized();
-                onClose();
+                await updateDoc(projectRef, {
+                    numeroProyectoLaboratorio: labProjectNumber,
+                    puntosDeTrabajo: Number(workPoints) || 0,
+                    notasEcotech: notes,
+                    numeroGuiaEnvio: guiaEnvio,
+                    numeroGuiaRegreso: guiaRegreso,
+                });
+                onFinalized(); // Refresca la tabla
+                // No cerramos el modal para que pueda seguir editando.
             } catch (err) {
                 alert("Error al guardar los cambios.");
             } finally {
@@ -2239,11 +2223,28 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
             }
         };
 
+        // Función genérica para avanzar el estado del flujo de trabajo
+        const handleUpdateStatus = async (updateData) => {
+            setLoading(true);
+            const projectRef = doc(db, "proyectos", project.id);
+            try {
+                await updateDoc(projectRef, updateData);
+                onFinalized();
+                onClose(); // Cierra el modal al completar una acción de flujo
+            } catch (err) {
+                alert("Error al actualizar el estado.");
+                setLoading(false);
+            }
+        };
+
         // Acciones específicas del flujo de trabajo
-        const handleStart = () => handleUpdate({ estatusEcotech: 'Pend. No de proyecto' });
-        const handleSaveSamplingDate = () => handleUpdate({ estatusEcotech: 'En Proceso', fechaMuestreo: Timestamp.fromDate(new Date(fechaMuestreo)) });
-        const handleSendDigital = () => handleUpdate({ estatusEcotech: 'Enviado Dig.', fechaEnvioDigital: Timestamp.now() });
-        const handleSaveGuides = () => handleUpdate({ numeroGuiaEnvio: guiaEnvio, numeroGuiaRegreso: guiaRegreso, estatusEcotech: 'Terminado' });
+        const handleStart = () => handleUpdateStatus({ estatusEcotech: 'Pend. No de proyecto' });
+        const handleSaveSamplingDate = () => handleUpdateStatus({ estatusEcotech: 'En Proceso', fechaMuestreo: Timestamp.fromDate(new Date(fechaMuestreo)) });
+        const handleSendDigital = () => handleUpdateStatus({ estatusEcotech: 'Enviado Dig.', fechaEnvioDigital: Timestamp.now() });
+        // NUEVA ACCIÓN: Marcar como enviado físicamente
+        const handleSendPhysical = () => handleUpdateStatus({ estatusEcotech: 'Enviado Físicamente', numeroGuiaEnvio: guiaEnvio });
+        // ACCIÓN FINAL: Terminar el proyecto
+        const handleFinishProject = () => handleUpdateStatus({ estatusEcotech: 'Terminado', numeroGuiaRegreso: guiaRegreso });
 
         return (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
@@ -2251,23 +2252,42 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
                     <h3 className="text-lg font-bold mb-2">Gestionar Proyecto Ecotech: {project.npu}</h3>
                     <p className="text-sm text-gray-500 mb-6">Estado actual: <span className="font-bold">{project.estatusEcotech || 'Pendiente'}</span></p>
                     
-                    {/* --- ACCIONES CONTEXTUALES --- */}
-                    {project.estatusEcotech === 'Pendiente' && (
-                        <button onClick={handleStart} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg mb-4">Empezar Tarea</button>
-                    )}
-                    {project.estatusEcotech === 'Pend. No de proyecto' && (
-                        <div className="p-4 border rounded-md bg-gray-50 mb-4">
-                            <label className="block text-sm font-medium text-gray-700">Introduce la Fecha de Muestreo</label>
-                            <input type="date" value={fechaMuestreo} onChange={e => setFechaMuestreo(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
-                            <button onClick={handleSaveSamplingDate} disabled={!fechaMuestreo} className="w-full mt-3 bg-blue-600 text-white font-bold py-2 rounded-lg disabled:bg-gray-400">Guardar Fecha y Poner "En Proceso"</button>
-                        </div>
-                    )}
-                    {project.estatusEcotech === 'En Proceso' && (
-                        <button onClick={handleSendDigital} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg mb-4">Marcar como "Enviado Digitalmente"</button>
-                    )}
+                    {/* --- ACCIONES CONTEXTUALES DEL FLUJO DE TRABAJO --- */}
+                    <div className="space-y-4 mb-6">
+                        {project.estatusEcotech === 'Pendiente' && (
+                            <button onClick={handleStart} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg">Empezar Tarea</button>
+                        )}
+                        {project.estatusEcotech === 'Pend. No de proyecto' && (
+                            <div className="p-4 border rounded-md bg-gray-50">
+                                <label className="block text-sm font-medium">Introduce la Fecha de Muestreo</label>
+                                <input type="date" value={fechaMuestreo} onChange={e => setFechaMuestreo(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
+                                <button onClick={handleSaveSamplingDate} disabled={!fechaMuestreo} className="w-full mt-3 bg-blue-600 text-white font-bold py-2 rounded-lg disabled:bg-gray-400">Guardar Fecha y Poner "En Proceso"</button>
+                            </div>
+                        )}
+                        {project.estatusEcotech === 'En Proceso' && (
+                            <button onClick={handleSendDigital} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg">Marcar como "Enviado Digitalmente"</button>
+                        )}
+                        {/* NUEVO ESTADO/ACCIÓN */}
+                        {project.estatusEcotech === 'Enviado Dig.' && (
+                            <div className="p-4 border rounded-md bg-gray-50">
+                                <label className="block text-sm font-medium">Introduce la Guía de Envío Físico</label>
+                                <input type="text" value={guiaEnvio} onChange={e => setGuiaEnvio(e.target.value)} placeholder="Número de guía..." className="mt-1 block w-full px-3 py-2 border rounded-md"/>
+                                <button onClick={handleSendPhysical} disabled={!guiaEnvio} className="w-full mt-3 bg-blue-600 text-white font-bold py-2 rounded-lg disabled:bg-gray-400">Marcar como "Enviado Físicamente"</button>
+                            </div>
+                        )}
+                        {/* ACCIÓN FINAL */}
+                        {project.estatusEcotech === 'Enviado Físicamente' && (
+                            <div className="p-4 border rounded-md bg-gray-50">
+                                <label className="block text-sm font-medium">Introduce la Guía de Regreso para Finalizar</label>
+                                <input type="text" value={guiaRegreso} onChange={e => setGuiaRegreso(e.target.value)} placeholder="Número de guía..." className="mt-1 block w-full px-3 py-2 border rounded-md"/>
+                                <button onClick={handleFinishProject} disabled={!guiaRegreso} className="w-full mt-3 bg-green-600 text-white font-bold py-2 rounded-lg disabled:bg-gray-400">Finalizar Proyecto</button>
+                            </div>
+                        )}
+                    </div>
 
-                    {/* --- FORMULARIO GENERAL (siempre visible) --- */}
-                    <div className="space-y-4">
+                    {/* --- FORMULARIO GENERAL (siempre visible para notas, etc.) --- */}
+                    <div className="space-y-4 border-t pt-6">
+                        <h4 className="text-md font-semibold text-gray-800">Información Adicional</h4>
                         <div>
                             <label className="block text-sm font-medium">Número de Proyecto (Laboratorio)</label>
                             <input type="text" value={labProjectNumber} onChange={e => setLabProjectNumber(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
@@ -2277,22 +2297,15 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
                             <input type="number" value={workPoints} onChange={e => setWorkPoints(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium">Nº de Guía (Envío)</label>
-                            <input type="text" value={guiaEnvio} onChange={e => setGuiaEnvio(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium">Nº de Guía (Regreso)</label>
-                            <input type="text" value={guiaRegreso} onChange={e => setGuiaRegreso(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
-                        </div>
-                        <div>
                             <label className="block text-sm font-medium">Notas</label>
                             <textarea value={notes} onChange={e => setNotes(e.target.value)} rows="3" className="mt-1 block w-full px-3 py-2 border rounded-md"></textarea>
                         </div>
                     </div>
 
                     <div className="mt-6 flex justify-end space-x-3">
-                        <button onClick={onClose} className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">Cancelar</button>
-                        <button onClick={handleSaveGuides} className="bg-[#b0ef26] hover:bg-[#9ac91e] text-black font-bold py-2 px-4 rounded">{loading ? 'Guardando...' : 'Guardar y Marcar como Terminado'}</button>
+                        <button onClick={onClose} className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">Cerrar</button>
+                        {/* NUEVO BOTÓN DE GUARDADO GENERAL */}
+                        <button onClick={handleSaveChanges} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded">{loading ? 'Guardando...' : 'Guardar Cambios'}</button>
                     </div>
                 </div>
             </div>
@@ -2477,7 +2490,7 @@ const DeliveredProjectsTable = ({ projects }) => {
 // y monitorea el progreso de los que ya están en proceso.
 // y los proyectos terminados tambien 
 
-const SupervisorDashboard = ({ user, userData }) => {
+const SupervisorDashboard = ({ user, userData, selectedRole }) => {
     const [view, setView] = useState('new');
     const [allProjects, setAllProjects] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -2556,8 +2569,8 @@ const SupervisorDashboard = ({ user, userData }) => {
                         </div>
                     )}
 
-                    {view === 'new' && <ProjectsTable projects={newProjects} onUpdateProject={() => {}} userRole="supervisor" supervisorView="new" user={user} userData={userData} />}
-                    {view === 'assigned' && <ProjectsTable projects={assignedProjects} onUpdateProject={() => {}} userRole="supervisor" supervisorView="assigned" user={user} userData={userData} />}
+                    {view === 'new' && <ProjectsTable projects={newProjects} onUpdateProject={() => {}} userRole="supervisor" supervisorView="new" user={user} userData={userData} selectedRole={selectedRole} />}
+                    {view === 'assigned' && <ProjectsTable projects={assignedProjects} onUpdateProject={() => {}} userRole="supervisor" supervisorView="assigned" user={user} userData={userData} selectedRole={selectedRole} />}
                     {view === 'delivered' && <DeliveredProjectsTable projects={deliveredProjects} />}
                 </>
             )}
@@ -3673,7 +3686,7 @@ const Dashboard = ({ user, userData, selectedRole }) => {
     const renderDashboardByRole = () => {
         switch (selectedRole) {
             case 'administrador':
-                return <AdminDashboard user={user} userData={userData} />;
+                return <AdminDashboard user={user} userData={userData} selectedRole={selectedRole} />;
             case 'cliente':
                 return <ClientDashboard user={user} userData={userData} />;
             case 'directivo':
@@ -3681,7 +3694,7 @@ const Dashboard = ({ user, userData, selectedRole }) => {
             case 'ecotech':
                 return <EcotechDashboard user={user} userData={userData} />;
             case 'supervisor':
-                return <SupervisorDashboard user={user} userData={userData} />;
+                return <SupervisorDashboard user={user} userData={userData} selectedRole={selectedRole} />;
             case 'tecnico':
                 return <TecnicoDashboard user={user} userData={userData} selectedRole={selectedRole} />;
             case 'finanzas':

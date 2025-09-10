@@ -121,6 +121,65 @@ const ConfirmationModal = ({ title, message, onConfirm, onCancel, confirmText = 
     );
 };
 
+// componente para filtrado avanzado, para cambiar la busqueda simple
+
+const ProjectFilters = ({ projects, techniciansMap, onFilterChange }) => {
+    const clients = [...new Set(projects.map(p => p.clienteNombre))].sort();
+    const technicianList = Object.entries(techniciansMap || {}).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+
+    const handleFilter = (filterName, value) => {
+        onFilterChange(filterName, value);
+    };
+
+    return (
+        <div className="bg-gray-50 p-4 rounded-lg mb-6 border flex flex-wrap items-center gap-x-6 gap-y-4">
+            <span className="font-semibold text-gray-700">Filtrar por:</span>
+            
+            {/* Filtro por NPU */}
+            <div>
+                <label htmlFor="npu-filter" className="text-sm font-medium text-gray-600 mr-2">NPU:</label>
+                <input
+                    id="npu-filter"
+                    type="text"
+                    onChange={(e) => handleFilter('npu', e.target.value)}
+                    placeholder="Buscar NPU..."
+                    className="border-gray-300 rounded-md p-2 text-sm"
+                />
+            </div>
+
+            {/* Filtro por Cliente */}
+            <div>
+                <label htmlFor="client-filter" className="text-sm font-medium text-gray-600 mr-2">Cliente:</label>
+                <select id="client-filter" onChange={(e) => handleFilter('cliente', e.target.value)} className="border-gray-300 rounded-md p-2 text-sm">
+                    <option value="">Todos</option>
+                    {clients.map(client => <option key={client} value={client}>{client}</option>)}
+                </select>
+            </div>
+
+            {/* Filtro por Técnico */}
+            <div>
+                <label htmlFor="tech-filter" className="text-sm font-medium text-gray-600 mr-2">Técnico:</label>
+                <select id="tech-filter" onChange={(e) => handleFilter('tecnico', e.target.value)} className="border-gray-300 rounded-md p-2 text-sm">
+                    <option value="">Todos</option>
+                    {technicianList.map(tech => <option key={tech.id} value={tech.id}>{tech.name}</option>)}
+                </select>
+            </div>
+
+             {/* Filtro por Estado de Entrega */}
+             <div>
+                <label htmlFor="status-filter" className="text-sm font-medium text-gray-600 mr-2">Estado:</label>
+                <select id="status-filter" onChange={(e) => handleFilter('estadoEntrega', e.target.value)} className="border-gray-300 rounded-md p-2 text-sm">
+                    <option value="">Todos</option>
+                    <option value="Atrasado">Atrasado</option>
+                    <option value="Por Vencer">Por Vencer</option>
+                    <option value="A Tiempo">A Tiempo</option>
+                    <option value="Sin Fecha">Sin Fecha</option>
+                </select>
+            </div>
+        </div>
+    );
+};
+
 // Mi modal para acciones que necesitan una razón por escrito (ej. rechazar un proyecto).
 const ActionWithReasonModal = ({ title, message, onConfirm, onCancel, confirmText = "Confirmar", cancelText = "Cancelar", confirmColor = "bg-orange-600" }) => {
     const [reason, setReason] = useState('');
@@ -1078,20 +1137,25 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
 
     return (
         <>
-            <div className="mb-4 flex flex-col md:flex-row justify-between items-center">
-                <input 
-                    type="text"
-                    placeholder="Buscar por NPU, cliente, servicio o dependencia..."
-                    className="w-full md:w-1/3 px-3 py-2 border border-gray-300 rounded-md mb-2 md:mb-0"
-                    onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-                />
-                <div className="flex items-center">
-                    <span className="text-sm mr-2">Mostrar:</span>
-                    <select value={itemsPerPage} onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }} className="px-2 py-1 border border-gray-300 rounded-md">
-                        <option value={10}>10</option><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option>
-                    </select>
+            {userRole !== 'supervisor' && (
+                <div className="mb-4 flex flex-col md:flex-row justify-between items-center">
+                    <input
+                        type="text"
+                        placeholder="Buscar por NPU, cliente, servicio o dependencia..."
+                        className="w-full md:w-1/3 px-3 py-2 border border-gray-300 rounded-md mb-2 md:mb-0"
+                        onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                    />
+                    <div className="flex items-center">
+                        <span className="text-sm mr-2">Mostrar:</span>
+                        <select value={itemsPerPage} onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }} className="px-2 py-1 border border-gray-300 rounded-md">
+                            <option value={10}>10</option>
+                            <option value={25}>25</option>
+                            <option value={50}>50</option>
+                            <option value={100}>100</option>
+                        </select>
+                    </div>
                 </div>
-            </div>
+            )}
 
             <div className="overflow-x-auto bg-white rounded-lg shadow">
                 <table className="min-w-full divide-y divide-gray-200">
@@ -1109,6 +1173,7 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
 
                         {userRole === 'supervisor' && supervisorView === 'assigned' && (
                             <tr>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
@@ -1118,7 +1183,6 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Info Ecotech</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado Entrega</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notas</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
                             </tr>
                         )}
 
@@ -1179,6 +1243,12 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
 
                                     {userRole === 'supervisor' && supervisorView === 'assigned' && (
                                         <>
+                                            <td className="px-4 py-2">
+                                                <div className="flex items-center space-x-4">
+                                                    <button onClick={() => { setModalProject(project); setModalType('assign'); }} className="text-indigo-600">Reasignar</button>
+                                                    <button onClick={() => { setModalProject(project); setModalType('log'); }} className="text-gray-600">Bitácora</button>
+                                                </div>
+                                            </td>                                        
                                             <td className="px-4 py-2 whitespace-nowrap text-sm font-medium">{project.npu}</td>
                                             <td className="px-4 py-2 whitespace-nowrap text-sm">{project.clienteNombre}</td>
                                             <td className="px-4 py-2 whitespace-nowrap text-sm">{project.servicioNombre}</td>
@@ -1199,12 +1269,6 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
                                                 <button onClick={() => setNoteModalProject(project)} className="hover:text-blue-600 text-left w-full">
                                                     <p className="w-32 truncate" title={project.notasSupervisor || "Añadir nota"}>{project.notasSupervisor || <span className="text-gray-400 italic">Añadir nota...</span>}</p>
                                                 </button>
-                                            </td>
-                                            <td className="px-4 py-2">
-                                                <div className="flex items-center space-x-4">
-                                                    <button onClick={() => { setModalProject(project); setModalType('assign'); }} className="text-indigo-600">Reasignar</button>
-                                                    <button onClick={() => { setModalProject(project); setModalType('log'); }} className="text-gray-600">Bitácora</button>
-                                                </div>
                                             </td>
                                         </>
                                     )}
@@ -2494,31 +2558,76 @@ const SupervisorDashboard = ({ user, userData, selectedRole }) => {
     const [view, setView] = useState('new');
     const [allProjects, setAllProjects] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [sortBy, setSortBy] = useState('fechaEntregaInterna'); 
-    const [sortOrder, setSortOrder] = useState('asc'); 
+    const [techniciansMap, setTechniciansMap] = useState({});
+    const [activeFilters, setActiveFilters] = useState({
+        cliente: '',
+        npu: '',
+        tecnico: '',
+        estadoEntrega: '',
+    }); 
 
     useEffect(() => {
         setLoading(true);
-        const q = query(collection(db, "proyectos"), where("estado", "!=", "Cotización"));
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-            setAllProjects(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        const qProjects = query(collection(db, "proyectos"), where("estado", "!=", "Cotización"));
+        const unsubscribeProjects = onSnapshot(qProjects, (snapshot) => {
+            setAllProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
             setLoading(false);
         });
-        return () => unsubscribe();
+
+        const fetchTechnicians = async () => {
+            const q1 = query(collection(db, "usuarios"), where("rol", "==", "tecnico"));
+            const q2 = query(collection(db, "usuarios"), where("roles", "array-contains", "tecnico"));
+
+            const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+
+            const techMap = new Map();
+            snap1.forEach(doc => techMap.set(doc.id, doc.data().nombreCompleto));
+            snap2.forEach(doc => techMap.set(doc.id, doc.data().nombreCompleto));
+            
+            setTechniciansMap(Object.fromEntries(techMap));
+        };
+
+        fetchTechnicians();
+        
+        return () => unsubscribeProjects();
     }, []);
 
-    const { newProjects, assignedProjects, deliveredProjects } = React.useMemo(() => {
-        const newP = [];
-        let assignedP = [];
-        const deliveredP = [];
+    const handleFilterChange = (filterName, value) => {
+        setActiveFilters(prev => ({ ...prev, [filterName]: value }));
+    };
+    
 
-        allProjects.forEach(p => {
-            if (p.fechaFinTecnico1) {
-                deliveredP.push(p);
+    const { newProjects, assignedProjects, deliveredProjects } = React.useMemo(() => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const projectsWithStatus = allProjects.map(p => {
+            let status = 'A Tiempo';
+            const dueDate = p.fechaEntregaInterna?.toDate();
+            if (!dueDate) {
+                status = 'Sin Fecha';
+            } else {
+                dueDate.setHours(0, 0, 0, 0);
+                const diffDays = (dueDate - today) / (1000 * 60 * 60 * 24);
+                if (diffDays < 0) status = 'Atrasado';
+                else if (diffDays <= 3) status = 'Por Vencer';
             }
+            return { ...p, deliveryStatus: status };
+        });
+
+        const filtered = projectsWithStatus.filter(p => {
+            const clientMatch = !activeFilters.cliente || p.clienteNombre === activeFilters.cliente;
+            const npuMatch = !activeFilters.npu || p.npu.toLowerCase().includes(activeFilters.npu.toLowerCase());
+            const techMatch = !activeFilters.tecnico || p.asignadoTecnicosIds?.includes(activeFilters.tecnico);
+            const statusMatch = !activeFilters.estadoEntrega || p.deliveryStatus === activeFilters.estadoEntrega;
+            return clientMatch && npuMatch && techMatch && statusMatch;
+        });
+
+        const newP = [], assignedP = [], deliveredP = [];
+        filtered.forEach(p => {
+            if (p.fechaFinTecnico1) deliveredP.push(p);
             if (p.estado === 'Activo') {
-                const hasAssignedTechnicians = p.asignadoTecnicosIds && p.asignadoTecnicosIds.length > 0;
-                if (hasAssignedTechnicians) {
+                if (p.asignadoTecnicosIds && p.asignadoTecnicosIds.length > 0) {
                     assignedP.push(p);
                 } else {
                     newP.push(p);
@@ -2526,17 +2635,8 @@ const SupervisorDashboard = ({ user, userData, selectedRole }) => {
             }
         });
         
-        assignedP.sort((a, b) => {
-            const fieldA = a[sortBy]?.toDate() || new Date(0);
-            const fieldB = b[sortBy]?.toDate() || new Date(0);
-            
-            if (fieldA < fieldB) return sortOrder === 'asc' ? -1 : 1;
-            if (fieldA > fieldB) return sortOrder === 'asc' ? 1 : -1;
-            return 0;
-        });
-
         return { newProjects: newP, assignedProjects: assignedP, deliveredProjects: deliveredP };
-    }, [allProjects, sortBy, sortOrder]);
+    }, [allProjects, activeFilters]);
 
     return (
         <div>
@@ -2556,19 +2656,11 @@ const SupervisorDashboard = ({ user, userData, selectedRole }) => {
             
             {loading ? <p>Cargando proyectos...</p> : (
                 <>
-                    {view === 'assigned' && (
-                        <div className="flex justify-end items-center mb-4 space-x-4">
-                            <label htmlFor="sort-by" className="text-sm font-medium text-gray-700">Ordenar por:</label>
-                            <select id="sort-by" value={sortBy} onChange={e => setSortBy(e.target.value)} className="border-gray-300 rounded-md shadow-sm p-2 text-sm">
-                                <option value="fechaEntregaInterna">Fecha Límite</option>
-                                <option value="fechaAsignacionTecnico">Fecha de Asignación</option>
-                            </select>
-                            <button onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')} className="p-2 border rounded-md text-sm bg-white shadow-sm hover:bg-gray-50">
-                                {sortOrder === 'asc' ? 'Ascendente ↑' : 'Descendente ↓'}
-                            </button>
-                        </div>
-                    )}
-
+                    <ProjectFilters
+                        projects={allProjects}
+                        techniciansMap={techniciansMap}
+                        onFilterChange={handleFilterChange}
+                    />
                     {view === 'new' && <ProjectsTable projects={newProjects} onUpdateProject={() => {}} userRole="supervisor" supervisorView="new" user={user} userData={userData} selectedRole={selectedRole} />}
                     {view === 'assigned' && <ProjectsTable projects={assignedProjects} onUpdateProject={() => {}} userRole="supervisor" supervisorView="assigned" user={user} userData={userData} selectedRole={selectedRole} />}
                     {view === 'delivered' && <DeliveredProjectsTable projects={deliveredProjects} />}

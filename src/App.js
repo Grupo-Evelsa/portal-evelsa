@@ -86,10 +86,9 @@ const Alert = ({ message, type, onClose }) => {
 
 
 /**
- * Calcula una fecha futura añadiendo días hábiles (lunes a viernes).
- * @param {Date} startDate La fecha de inicio.
- * @param {number} days El número de días hábiles a añadir.
- * @return {Date} La fecha futura.
+ * @param {Date} startDate 
+ * @param {number} days
+ * @return {Date}
  */
 const addBusinessDays = (startDate, days) => {
     if (!startDate) return null;
@@ -98,7 +97,7 @@ const addBusinessDays = (startDate, days) => {
     while (addedDays < days) {
         currentDate.setDate(currentDate.getDate() + 1);
         const dayOfWeek = currentDate.getDay();
-        if (dayOfWeek !== 0 && dayOfWeek !== 6) { // 0 = Domingo, 6 = Sábado
+        if (dayOfWeek !== 0 && dayOfWeek !== 6) {
             addedDays++;
         }
     }
@@ -122,7 +121,6 @@ const ConfirmationModal = ({ title, message, onConfirm, onCancel, confirmText = 
 };
 
 // componente para filtrado avanzado, para cambiar la busqueda simple
-
 const ProjectFilters = ({ projects, techniciansMap, onFilterChange }) => {
     const clients = [...new Set(projects.map(p => p.clienteNombre))].sort();
     const technicianList = Object.entries(techniciansMap || {}).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
@@ -1174,15 +1172,15 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
                         {userRole === 'supervisor' && supervisorView === 'assigned' && (
                             <tr>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado Entrega</th>                                
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Técnico</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Info Ecotech</th> 
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Asignación</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Límite</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Info Ecotech</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado Entrega</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notas</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Técnico</th>                         
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
                             </tr>
                         )}
 
@@ -1249,12 +1247,9 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
                                                     <button onClick={() => { setModalProject(project); setModalType('log'); }} className="text-gray-600">Bitácora</button>
                                                 </div>
                                             </td>                                        
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm font-medium">{project.npu}</td>
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm"><StatusBadge status={deliveryStatus} /></td>
                                             <td className="px-4 py-2 whitespace-nowrap text-sm">{project.clienteNombre}</td>
                                             <td className="px-4 py-2 whitespace-nowrap text-sm">{project.servicioNombre}</td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{techniciansMap[project.asignadoTecnicosIds?.[0]] || '---'}</td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{formatDate(project.fechaAsignacionTecnico)}</td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{formatDate(project.fechaEntregaInterna)}</td>
                                             <td className="px-4 py-2 whitespace-nowrap text-sm">
                                                 {isEcotech ? (
                                                     <div className="text-xs">
@@ -1263,13 +1258,16 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
                                                         <p><strong>Estatus:</strong> {project.estatusEcotech || 'N/A'}</p>
                                                     </div>
                                                 ) : 'N/A'}
-                                            </td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm"><StatusBadge status={deliveryStatus} /></td>
+                                            </td>                                            
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{formatDate(project.fechaAsignacionTecnico)}</td>
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{formatDate(project.fechaEntregaInterna)}</td>
                                             <td className="px-4 py-2 text-sm text-gray-600">
                                                 <button onClick={() => setNoteModalProject(project)} className="hover:text-blue-600 text-left w-full">
                                                     <p className="w-32 truncate" title={project.notasSupervisor || "Añadir nota"}>{project.notasSupervisor || <span className="text-gray-400 italic">Añadir nota...</span>}</p>
                                                 </button>
                                             </td>
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{techniciansMap[project.asignadoTecnicosIds?.[0]] || '---'}</td>
+                                            <td className="px-4 py-2 whitespace-nowrap text-sm font-medium">{project.npu}</td>
                                         </>
                                     )}
 

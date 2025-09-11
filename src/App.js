@@ -10,6 +10,7 @@ import {
     signInWithEmailAndPassword, 
     signOut 
 } from 'firebase/auth';
+
 import { 
     getFirestore, 
     collection, 
@@ -27,8 +28,10 @@ import {
     orderBy,
     deleteDoc,
     deleteField,
-    arrayUnion
+    arrayUnion,
+    writeBatch
 } from 'firebase/firestore';
+
 import { 
     getStorage, 
     ref, 
@@ -37,9 +40,9 @@ import {
 } from 'firebase/storage';
 
 import { Bar } from 'react-chartjs-2';
-
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, LineElement, PointElement, LineController, Title, Tooltip, Legend, ArcElement } from 'chart.js';
-
+import { ToastContainer, toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 // Registro los componentes de Chart.js para poder usar las gráficas.
 ChartJS.register(
@@ -250,6 +253,50 @@ const SupervisorNoteModal = ({ project, onClose, onUpdate }) => {
 const Header = ({ user, userData, selectedRole, setSelectedRole }) => {
     const logoGrupoEvelsa = "https://www.grupoevelsa.com/assets/images/Logo Evelsa 2.png";
     const hasMultipleRoles = userData?.roles && userData.roles.length > 1;
+    
+    useEffect(() => {
+        if (!user?.uid) return;
+
+        const notificationSound = new Audio('https://freesound.org/data/previews/131/131660_2398463-lq.mp3');
+
+        const q = query(
+            collection(db, "notificaciones"),
+            where("recipientId", "==", user.uid),
+            where("read", "==", false)
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const newNotifications = [];
+            snapshot.docChanges().forEach((change) => {
+                if (change.type === "added") {
+                    newNotifications.push({ id: change.doc.id, ...change.doc.data() });
+                }
+            });
+
+            if (newNotifications.length > 2) {
+                toast.info(`🔔 Tienes ${newNotifications.length} notificaciones nuevas sin leer.`);
+                notificationSound.play().catch(e => console.log("La interacción del usuario es necesaria para reproducir sonido."));
+            } else {
+                newNotifications.forEach((notif, index) => {
+                    setTimeout(() => {
+                        toast.info(`🔔 ${notif.message}`);
+                        notificationSound.play().catch(e => console.log("La interacción del usuario es necesaria para reproducir sonido."));
+                    }, index * 1000);
+                });
+            }
+
+            if (newNotifications.length > 0) {
+                const batch = writeBatch(db);
+                newNotifications.forEach(notif => {
+                    const notifRef = doc(db, "notificaciones", notif.id);
+                    batch.update(notifRef, { read: true });
+                });
+                batch.commit();
+            }
+        });
+
+        return () => unsubscribe();
+    }, [user]);
 
     return (
         <header className="bg-white shadow-md sticky top-0 z-40">
@@ -3891,6 +3938,17 @@ export default function App() {
     // El contenedor principal de mi app.
     return (
         <div className="bg-[#c9c9c9] min-h-screen font-sans">
+                <ToastContainer
+                position="bottom-right"
+                autoClose={8000}
+                hideProgressBar={false}
+                newestOnTop={true}
+                closeOnClick
+                rtl={false}
+                pauseOnFocusLoss
+                draggable
+                pauseOnHover
+                />
              <Header user={user} userData={userData} selectedRole={selectedRole} setSelectedRole={setSelectedRole}/>
              <main>
                  {/* Si hay un usuario, muestro el Dashboard; si no, la página de Login. */}

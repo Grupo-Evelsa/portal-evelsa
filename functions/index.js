@@ -1,4 +1,4 @@
-// functions/index.js
+// functions/index.js (Cambia notf. email a pop ups)
 
 const {onDocumentCreated, onDocumentUpdated} =
  require("firebase-functions/v2/firestore");
@@ -29,40 +29,50 @@ async function getUsersDataByRole(role) {
   const usersRef = admin.firestore().collection("usuarios");
   const singleRoleQuery = usersRef.where("rol", "==", role).get();
   const multiRoleQuery = usersRef.where("roles", "array-contains", role).get();
+
   const [singleRoleSnapshot, multiRoleSnapshot] = await Promise.all([
     singleRoleQuery,
     multiRoleQuery,
   ]);
+
   const usersMap = new Map();
-  singleRoleSnapshot.forEach((doc) => usersMap.set(doc.id, doc.data()));
-  multiRoleSnapshot.forEach((doc) => usersMap.set(doc.id, doc.data()));
+  singleRoleSnapshot.forEach((doc) => usersMap.set(doc.id, {id: doc.id,
+    ...doc.data()}));
+  multiRoleSnapshot.forEach((doc) => usersMap.set(doc.id, {id: doc.id,
+    ...doc.data()}));
   return Array.from(usersMap.values());
 }
 
-
 /**
- * Crea un documento en la colección 'mail' para que la extensión lo envíe.
- * @param {Array<string>} emails - La lista de correos de los destinatarios.
- * @param {string} subject - El asunto del correo.
- * @param {string} html - El cuerpo del correo en formato HTML.
+ * @param {Array<string>} recipientIds
+ * @param {string} message
+ * @param {string} projectId
  */
-async function sendEmail(emails, subject, html) {
-  if (!emails || emails.length === 0) {
-    log("No hay destinatarios para enviar el correo.");
+async function createNotification(recipientIds, message, projectId) {
+  if (!recipientIds || recipientIds.length === 0) {
+    log("No hay destinatarios para la notificación.");
     return;
   }
-  try {
-    // La extensión "Trigger Email" vigila esta colección.
-    await admin.firestore().collection("mail").add({
-      to: emails,
-      message: {
-        subject: subject,
-        html: html,
-      },
+  const batch = admin.firestore().batch();
+  const notificationsRef = admin.firestore().collection("notificaciones");
+
+  recipientIds.forEach((userId) => {
+    const newNotifRef = notificationsRef.doc();
+    batch.set(newNotifRef, {
+      recipientId: userId,
+      message: message,
+      projectId: projectId || "",
+      read: false,
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
     });
-    log(`Correo para '${subject}' encolado para ${emails.join(", ")}.`);
+  });
+
+  try {
+    await batch.commit();
+    log(`Notificación '${message}' creada para ${recipientIds.length}
+       usuario(s).`);
   } catch (err) {
-    error("Error al encolar correo:", err);
+    error("Error al crear notificaciones en batch:", err);
   }
 }
 
@@ -113,25 +123,21 @@ async function archiveFileToColdline(fileUrl) {
 
 // --- TRIGGERS ---
 
-exports.notifyNewLogEntry =
- onDocumentCreated("bitacoras_proyectos/{logId}", async (event) => {
-   const snap = event.data;
-   if (!snap) return;
-   const logData = snap.data();
-   const projectDoc =
-   await admin.firestore().collection("proyectos").doc(logData.projectId).get();
-   if (!projectDoc.exists) return;
-   const projectData = projectDoc.data();
-   const supervisors = await getUsersDataByRole("supervisor");
-   const emails = supervisors.map((user) => user.email).filter(Boolean);
-
-   const subject = `Nueva Bitácora en el Proyecto ${projectData.npu}`;
-   const html = `<p>Hola,</p><p>El usuario <strong>${logData.autorNombre}
-   </strong> ha añadido una nueva nota en la bitácora del proyecto <strong>
-   ${projectData.npu}
-   </strong>.</p><p>Por favor, revisa la comunicación en el portal.</p>`;
-   await sendEmail(emails, subject, html);
- });
+exports.notifyNewLogEntry = onDocumentCreated("bitacoras_proyectos/{logId}",
+    async (event) => {
+      const snap = event.data;
+      if (!snap) return;
+      const logData = snap.data();
+      const projectDoc = await
+      admin.firestore().collection("proyectos").doc(logData.projectId).get();
+      if (!projectDoc.exists) return;
+      const projectData = projectDoc.data();
+      const supervisors = await getUsersDataByRole("supervisor");
+      const supervisorIds = supervisors.map((user) => user.id);
+      const message =
+       `Nueva Bitácora en ${projectData.npu} por ${logData.autorNombre}.`;
+      await createNotification(supervisorIds, message, logData.projectId);
+    });
 
 exports.notifyProjectUpdate =
  onDocumentUpdated("proyectos/{projectId}", async (event) => {
@@ -139,40 +145,28 @@ exports.notifyProjectUpdate =
      log("No data associated with the event.");
      return;
    }
+   const projectId = event.params.projectId;
    const beforeData = event.data.before.data();
    const afterData = event.data.after.data();
 
-   // Función auxiliar para notificar a un rol completo
-   const notifyRole = async (role, subject, html) => {
+   const notifyRole = async (role, message) => {
      const users = await getUsersDataByRole(role);
-     const emails = users.map((user) => user.email).filter(Boolean);
-     await sendEmail(emails, subject, html);
+     const userIds = users.map((user) => user.id);
+     await createNotification(userIds, message, projectId);
    };
 
-   // Función auxiliar para notificar a una lista específica de usuarios por ID
-   const notifyUsers = async (firebaseUserIds, subject, html) => {
-     const emails = [];
-     for (const userId of firebaseUserIds) {
-       const userData = await getUserData(userId);
-       if (userData && userData.email) {
-         emails.push(userData.email);
-       }
-     }
-     await sendEmail(emails, subject, html);
+   const notifyUsers = async (firebaseUserIds, message) => {
+     await createNotification(firebaseUserIds, message, projectId);
    };
 
    // --- LÓGICA DE NOTIFICACIONES POR CAMBIO DE ESTADO ---
 
-   // A. Proyecto Activado -> Notificar a Supervisores
    if (beforeData.estado === "Cotización" && afterData.estado === "Activo") {
-     const subject = `Proyecto Activado: ${afterData.npu}`;
-     const html = `<p>El proyecto <strong>${afterData.npu}</strong>
-      (${afterData.clienteNombre})
-       ha sido activado y está listo para ser asignado a un técnico.</p>`;
-     await notifyRole("supervisor", subject, html);
+     const message =
+      `Proyecto Activado: ${afterData.npu} está listo para ser asignado.`;
+     await notifyRole("supervisor", message);
    }
 
-   // B. Técnico Inicia Tarea -> Notificar a Supervisores
    const techStatusAfter = afterData.tecnicosStatus || {};
    for (const techId in techStatusAfter) {
      if (
@@ -181,87 +175,63 @@ exports.notifyProjectUpdate =
      ) {
        const techData = await getUserData(techId);
        const techName = techData ? techData.nombreCompleto : "un técnico";
-       const subject = `Tarea Iniciada en ${afterData.npu}`;
-       const html = `<p>El técnico <strong>${techName}
-       </strong> ha comenzado a trabajar en el proyecto <strong>
-       ${afterData.npu}</strong>.</p>`;
-       await notifyRole("supervisor", subject, html);
-       break; // Solo notificar una vez por actualización
+       const message = `Tarea Iniciada: El técnico ${techName}
+        ha comenzado a trabajar en ${afterData.npu}.`;
+       await notifyRole("supervisor", message);
+       break;
      }
    }
 
-   // C. Tarea Finalizada -> Notificar a Supervisores y Practicantes
-   if (
-     beforeData.estado !== "Terminado Internamente" &&
-     afterData.estado === "Terminado Internamente"
-   ) {
-     const subject = `Tarea Finalizada: ${afterData.npu}`;
-     const html = `<p>El proyecto <strong>${afterData.npu}
-     </strong> ha sido completado por el equipo técnico y 
-     está listo para la preparación de documentos.</p>`;
-     await notifyRole("supervisor", subject, html);
-     await notifyRole("practicante", subject, html);
+   if (beforeData.estado !== "Terminado Internamente" &&
+     afterData.estado === "Terminado Internamente") {
+     const message = `Tarea Finalizada: El proyecto $
+     {afterData.npu} está listo para documentación.`;
+     await notifyRole("supervisor", message);
+     await notifyRole("practicante", message);
    }
 
-   // D. Listo para Facturar -> Notificar a Finanzas
-   if (
-     beforeData.estado !== "Pendiente de Factura" &&
-     afterData.estado === "Pendiente de Factura"
-   ) {
-     const subject = `Proyecto Listo para Facturar: ${afterData.npu}`;
-     const html = `<p>El proyecto <strong>${afterData.npu}
-     </strong> ha sido aprobado y está pendiente de gestión de factura.</p>`;
-     await notifyRole("finanzas", subject, html);
+   if (beforeData.estado !== "Pendiente de Factura" &&
+     afterData.estado === "Pendiente de Factura") {
+     const message =
+      `Listo para Facturar: El proyecto ${afterData.npu} ha sido aprobado.`;
+     await notifyRole("finanzas", message);
    }
 
-   // E. Proyecto Facturado -> Notificar a Supervisores y Finanzas
    if (beforeData.estado !== "Facturado" && afterData.estado === "Facturado") {
-     const subject = `Proyecto Facturado: ${afterData.npu}`;
-     const html = `<p>Se han gestionado las facturas para el proyecto <strong>
-     ${afterData.npu}</strong>.</p>`;
-     await notifyRole("supervisor", subject, html);
-     await notifyRole("finanzas", subject, html);
+     const message = `Proyecto Facturado: Se han gestionado las facturas para $
+     {afterData.npu}.`;
+     await notifyRole("supervisor", message);
+     await notifyRole("finanzas", message);
    }
 
-   // F. Nueva Asignación -> Notificar a los nuevos técnicos asignados
    const techsBefore = beforeData.asignadoTecnicosIds || [];
    const techsAfter = afterData.asignadoTecnicosIds || [];
    const newTechs = techsAfter.filter((id) => !techsBefore.includes(id));
 
    if (newTechs.length > 0) {
-     const subject = `Nueva Tarea Asignada: ${afterData.npu}`;
-     const html = `<p>Hola, se te ha asignado el proyecto <strong>
-     ${afterData.npu}</strong> (${afterData.servicioNombre})
-     . Por favor, revísalo en el portal.</p>`;
-     await notifyUsers(newTechs, subject, html);
+     const message =
+      `Nueva Tarea: Se te ha asignado el proyecto ${afterData.npu}.`;
+     await notifyUsers(newTechs, message);
    }
    // --- LÓGICA DE GESTIÓN DE ARCHIVOS ---
 
-   // G. Borrar evidencia del técnico cuando el Admin aprueba
-   if (
-     beforeData.estado === "En Revisión Final" &&
-     (afterData.estado === "Pendiente de Factura" ||
-       afterData.estado === "Archivado")
-   ) {
+   if (beforeData.estado === "En Revisión Final" && (afterData.estado ===
+     "Pendiente de Factura" || afterData.estado === "Archivado")) {
      log(`Proyecto ${afterData.npu} aprobado. Borrando evidencias de técnico.`);
-     if (afterData.urlEvidenciaTecnico1) {
-       await deleteFileFromUrl(afterData.urlEvidenciaTecnico1);
-     }
-     if (afterData.urlEvidenciaTecnico2) {
-       await deleteFileFromUrl(afterData.urlEvidenciaTecnico2);
-     }
+     if (afterData
+         .urlEvidenciaTecnico1
+     ) await deleteFileFromUrl(afterData.urlEvidenciaTecnico1);
+     if (afterData
+         .urlEvidenciaTecnico2
+     ) await deleteFileFromUrl(afterData.urlEvidenciaTecnico2);
    }
 
-   // H. Archivar documentos iniciales cuando el proyecto se factura
    if (beforeData.estado !== "Facturado" && afterData.estado === "Facturado") {
      log(`Proyecto ${afterData.npu}
        facturado. Archivando documentos iniciales.`);
-     const filesToArchive = [
-       afterData.urlCotizacionCliente,
-       afterData.urlPOCliente,
-       afterData.urlCotizacionProveedor,
-       afterData.urlPOProveedor,
-     ];
+     const filesToArchive =
+      [afterData.urlCotizacionCliente, afterData.urlPOCliente,
+        afterData.urlCotizacionProveedor, afterData.urlPOProveedor];
      for (const fileUrl of filesToArchive) {
        await archiveFileToColdline(fileUrl);
      }

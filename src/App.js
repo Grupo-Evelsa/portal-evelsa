@@ -3541,7 +3541,7 @@ const InvoicesList = ({ invoiceType, onUpdate }) => {
     }, [invoiceType]);
 
     const filteredInvoices = invoices.filter(invoice => 
-        (invoice.folio && invoice.folio.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (invoice.folio && String(invoice.folio).toLowerCase().includes(searchTerm.toLowerCase())) ||
         (invoice.clienteNombre && invoice.clienteNombre.toLowerCase().includes(searchTerm.toLowerCase())) ||
         (invoice.proveedorNombre && invoice.proveedorNombre.toLowerCase().includes(searchTerm.toLowerCase())) ||
         (invoice.descripcion && invoice.descripcion.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -3783,7 +3783,9 @@ const InvoicesList = ({ invoiceType, onUpdate }) => {
                             <th className="px-6 py-3 text-left text-xs font-medium uppercase">Folio</th>
                             <th className="px-6 py-3 text-left text-xs font-medium uppercase">{invoiceType === 'cliente' ? 'Cliente' : 'Proveedor'}</th>
                             <th className="px-6 py-3 text-left text-xs font-medium uppercase">Descripción</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium uppercase">Monto</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium uppercase">Subtotal</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium uppercase">IVA</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium uppercase">Total</th>
                             <th className="px-6 py-3 text-left text-xs font-medium uppercase">Fecha Emisión</th>
                             <th className="px-6 py-3 text-left text-xs font-medium uppercase">Fecha Promesa Pago</th>
                             <th className="px-6 py-3 text-left text-xs font-medium uppercase">Fecha Pago</th>
@@ -3792,12 +3794,14 @@ const InvoicesList = ({ invoiceType, onUpdate }) => {
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                        {loading ? <tr><td colSpan="9">Cargando...</td></tr> : currentItems.map(invoice => (
+                        {loading ? <tr><td colSpan="11">Cargando...</td></tr> : currentItems.map(invoice => (
                             <tr key={invoice.id}>
                                 <td className="px-6 py-4">{invoice.folio}</td>
                                 <td className="px-6 py-4">{invoice.clienteNombre || invoice.proveedorNombre}</td>
                                 <td className="px-6 py-4">{invoice.descripcion || (invoice.proyectoId !== 'general' ? 'Gasto de Proyecto' : '---')}</td>
-                                <td className="px-6 py-4">${(invoice.monto || 0).toFixed(2)}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${(invoice.subtotal || 0).toFixed(2)}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${(invoice.iva || 0).toFixed(2)}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold">${(invoice.monto || 0).toFixed(2)}</td>
                                 <td className="px-6 py-4">{formatDate(invoice.fechaEmision)}</td>
                                 <td className="px-6 py-4">{formatDate(invoice.fechaPromesaPago)}</td>
                                 <td className="px-6 py-4">{formatDate(invoice.fechaPagoReal)}</td>

@@ -43,6 +43,7 @@ import { Bar } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, LineElement, PointElement, LineController, Title, Tooltip, Legend, ArcElement } from 'chart.js';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { XMLParser } from 'fast-xml-parser';
 
 // Registro los componentes de Chart.js para poder usar las gráficas.
 ChartJS.register(
@@ -88,6 +89,7 @@ const Alert = ({ message, type, onClose }) => {
 };
 
 
+//Funcion para los dias laborales
 /**
  * @param {Date} startDate 
  * @param {number} days
@@ -105,6 +107,60 @@ const addBusinessDays = (startDate, days) => {
         }
     }
     return currentDate;
+};
+
+// Funcion para leer los xml en el apartado de finanzas
+/**
+ * 
+ * @param {string} xmlText
+ * @return {object|null}
+ */
+const parseInvoiceXML = (xmlText) => {
+    try {
+        const parser = new XMLParser({
+            ignoreAttributes: false,
+            attributeNamePrefix: "@_",
+            parseAttributeValue: true,
+        });
+        const jsonData = parser.parse(xmlText);
+
+        const comprobante = jsonData["cfdi:Comprobante"];
+        if (!comprobante) throw new Error("Nodo <cfdi:Comprobante> no encontrado.");
+
+        const complemento = comprobante["cfdi:Complemento"]?.["tfd:TimbreFiscalDigital"];
+        if (!complemento) throw new Error("Nodo <tfd:TimbreFiscalDigital> no encontrado.");
+
+        let iva = 0;
+        const impuestosNode = comprobante["cfdi:Impuestos"];
+        if (impuestosNode && impuestosNode["@_TotalImpuestosTrasladados"]) {
+            iva = impuestosNode["@_TotalImpuestosTrasladados"];
+        } else if (impuestosNode && impuestosNode["cfdi:Traslados"]) {
+            const trasladosNode = impuestosNode["cfdi:Traslados"];
+            const traslados = Array.isArray(trasladosNode["cfdi:Traslado"])
+                ? trasladosNode["cfdi:Traslado"]
+                : [trasladosNode["cfdi:Traslado"]];
+            
+            traslados.forEach(t => {
+                if (t && t['@_Impuesto'] === '002') {
+                    iva += t['@_Importe'];
+                }
+            });
+        }
+
+        return {
+            folio: comprobante['@_Folio'] || 'S/F',
+            uuid: complemento['@_UUID'],
+            subtotal: comprobante['@_SubTotal'],
+            iva: iva,
+            monto: comprobante['@_Total'],
+            fechaEmision: new Date(comprobante['@_Fecha']),
+            rfcEmisor: comprobante["cfdi:Emisor"]?.['@_Rfc'],
+            rfcReceptor: comprobante["cfdi:Receptor"]?.['@_Rfc'],
+        };
+    } catch (err) {
+        console.error("Error al parsear el XML:", err);
+        return null;
+    }
 };
 
 // Mi modal de confirmación genérico para acciones simples (ej. "¿Estás seguro?").
@@ -3075,6 +3131,7 @@ const FinanzasDashboard = ({ user, userData }) => {
     );
 };
 
+// modal para subir facturas a proyectos pendientes de facturar
 const PendingInvoicesTable = ({ projects, onUpdate }) => {
     const [modalProject, setModalProject] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
@@ -3083,38 +3140,51 @@ const PendingInvoicesTable = ({ projects, onUpdate }) => {
 
     const AttachInvoicesModal = ({ project, onClose, onFinalized }) => {
         const [mode, setMode] = useState('upload');
-        const [clientInvoice, setClientInvoice] = useState({ folio: '', monto: project.precioCotizacionCliente || '', fechaEmision: new Date().toISOString().split('T')[0] });
-        const [clientFiles, setClientFiles] = useState({ xmlFile: null, pdfFile: null });
-        const [providerInvoice, setProviderInvoice] = useState({ folio: '', monto: project.costoProveedor || '', fechaEmision: new Date().toISOString().split('T')[0] });
-        const [providerFiles, setProviderFiles] = useState({ xmlFile: null, pdfFile: null });
+        const [clientXmlFile, setClientXmlFile] = useState(null);
+        const [providerXmlFile, setProviderXmlFile] = useState(null);
+        const [clientInvoiceData, setClientInvoiceData] = useState(null);
+        const [providerInvoiceData, setProviderInvoiceData] = useState(null);
+        const [loading, setLoading] = useState(false);
+        const [error, setError] = useState('');
         const [linkableInvoices, setLinkableInvoices] = useState([]);
         const [selectedClientInvoiceId, setSelectedClientInvoiceId] = useState('');
         const [selectedProviderInvoiceId, setSelectedProviderInvoiceId] = useState('');
-        const [loading, setLoading] = useState(false);
-        const [error, setError] = useState('');
-        
+
         const isInternalProvider = project.proveedorNombre?.toLowerCase().includes("ecologia");
 
         useEffect(() => {
             if (mode === 'link') {
                 const q = query(collection(db, "facturas"), orderBy("fechaEmision", "desc"));
                 const unsubscribe = onSnapshot(q, (snapshot) => {
-                    setLinkableInvoices(snapshot.docs.map(doc => ({id: doc.id, ...doc.data()})));
+                    setLinkableInvoices(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
                 });
                 return () => unsubscribe();
             }
         }, [mode]);
 
-        const handleChange = (setter) => (e) => {
-            const { name, value } = e.target;
-            setter(prev => ({ ...prev, [name]: value }));
+        const handleFileChange = (e, type) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            if (type === 'client') setClientXmlFile(file);
+            if (type === 'provider') setProviderXmlFile(file);
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const xmlText = event.target.result;
+                const extractedData = parseInvoiceXML(xmlText);
+
+                if (extractedData) {
+                    if (type === 'client') setClientInvoiceData(extractedData);
+                    if (type === 'provider') setProviderInvoiceData(extractedData);
+                    setError('');
+                } else {
+                    setError('Error al leer el XML. Asegúrate de que es un archivo CFDI válido.');
+                }
+            };
+            reader.readAsText(file);
         };
 
-        const handleFileChange = (setter) => (e) => {
-            const { name, files: inputFiles } = e.target;
-            if (inputFiles[0]) setter(prev => ({ ...prev, [name]: inputFiles[0] }));
-        };
-        
         const uploadFile = async (file, path) => {
             if (!file) return null;
             const storageRef = ref(storage, path);
@@ -3128,62 +3198,72 @@ const PendingInvoicesTable = ({ projects, onUpdate }) => {
             try {
                 const projectRef = doc(db, "proyectos", project.id);
                 const updatePayload = {};
-                let finalFacturaClienteIds = project.facturasClienteIds || [];
-                let finalFacturaProveedorIds = project.facturasProveedorIds || [];
 
                 if (mode === 'upload') {
-                    if (clientFiles.xmlFile && clientFiles.pdfFile && clientInvoice.folio) {
-                        const urlXml = await uploadFile(clientFiles.xmlFile, `facturas_clientes/${project.id}/${clientFiles.xmlFile.name}`);
-                        const urlPdf = await uploadFile(clientFiles.pdfFile, `facturas_clientes/${project.id}/${clientFiles.pdfFile.name}`);
+                    if (clientXmlFile && clientInvoiceData) {
+                        const urlXml = await uploadFile(clientXmlFile, `facturas_clientes/${project.id}/${clientXmlFile.name}`);
                         const newInvoiceRef = await addDoc(collection(db, "facturas"), {
-                            tipo: "cliente", proyectoId: project.id, folio: clientInvoice.folio, monto: Number(clientInvoice.monto),
-                            fechaEmision: Timestamp.fromDate(new Date(clientInvoice.fechaEmision)), estado: "Pendiente", urlXml, urlPdf,
-                            clienteNombre: project.clienteNombre
+                            tipo: "cliente",
+                            proyectoId: project.id,
+                            folio: clientInvoiceData.folio,
+                            uuid: clientInvoiceData.uuid,
+                            subtotal: clientInvoiceData.subtotal,
+                            iva: clientInvoiceData.iva,
+                            monto: clientInvoiceData.monto,
+                            fechaEmision: Timestamp.fromDate(clientInvoiceData.fechaEmision),
+                            estado: "Pendiente",
+                            urlXml: urlXml,
+                            pdfUrl: '',
+                            clienteNombre: project.clienteNombre,
                         });
-                        finalFacturaClienteIds.push(newInvoiceRef.id);
-                        updatePayload.facturasClienteIds = finalFacturaClienteIds;
+                        updatePayload.facturasClienteIds = arrayUnion(newInvoiceRef.id);
                     }
-                    if (!isInternalProvider && providerFiles.xmlFile && providerFiles.pdfFile && providerInvoice.folio) {
-                        const urlXml = await uploadFile(providerFiles.xmlFile, `facturas_proveedores/${project.id}/${providerFiles.xmlFile.name}`);
-                        const urlPdf = await uploadFile(providerFiles.pdfFile, `facturas_proveedores/${project.id}/${providerFiles.pdfFile.name}`);
+
+                    if (!isInternalProvider && providerXmlFile && providerInvoiceData) {
+                        const urlXml = await uploadFile(providerXmlFile, `facturas_proveedores/${project.id}/${providerXmlFile.name}`);
                         const newInvoiceRef = await addDoc(collection(db, "facturas"), {
-                            tipo: "proveedor", proyectoId: project.id, folio: providerInvoice.folio, monto: Number(providerInvoice.monto),
-                            fechaEmision: Timestamp.fromDate(new Date(providerInvoice.fechaEmision)), estado: "Pendiente", urlXml, urlPdf,
-                            proveedorNombre: project.proveedorNombre
+                            tipo: "proveedor",
+                            proyectoId: project.id,
+                            folio: providerInvoiceData.folio,
+                            uuid: providerInvoiceData.uuid,
+                            subtotal: providerInvoiceData.subtotal,
+                            iva: providerInvoiceData.iva,
+                            monto: providerInvoiceData.monto,
+                            fechaEmision: Timestamp.fromDate(providerInvoiceData.fechaEmision),
+                            estado: "Pendiente",
+                            urlXml: urlXml,
+                            proveedorNombre: project.proveedorNombre,
                         });
-                        finalFacturaProveedorIds.push(newInvoiceRef.id);
-                        updatePayload.facturasProveedorIds = finalFacturaProveedorIds;
+                        updatePayload.facturasProveedorIds = arrayUnion(newInvoiceRef.id);
                     }
-                } else { 
+                } 
+                else {
                     if (selectedClientInvoiceId) {
                         await updateDoc(doc(db, "facturas", selectedClientInvoiceId), { proyectosIds: arrayUnion(project.id) });
-                        finalFacturaClienteIds.push(selectedClientInvoiceId);
                         updatePayload.facturasClienteIds = arrayUnion(selectedClientInvoiceId);
                     }
                     if (selectedProviderInvoiceId && !isInternalProvider) {
                         await updateDoc(doc(db, "facturas", selectedProviderInvoiceId), { proyectosIds: arrayUnion(project.id) });
-                        finalFacturaProveedorIds.push(selectedProviderInvoiceId);
                         updatePayload.facturasProveedorIds = arrayUnion(selectedProviderInvoiceId);
                     }
                 }
                 
-                const isClientInvoiceReady = finalFacturaClienteIds.length > 0;
-                const isProviderInvoiceReady = isInternalProvider || finalFacturaProveedorIds.length > 0;
+                const clientInvoiceReady = (project.facturasClienteIds?.length > 0) || clientInvoiceData || selectedClientInvoiceId;
+                const providerInvoiceReady = isInternalProvider || (project.facturasProveedorIds?.length > 0) || providerInvoiceData || selectedProviderInvoiceId;
 
-                if (isClientInvoiceReady && isProviderInvoiceReady) {
+                if (clientInvoiceReady && providerInvoiceReady) {
                     updatePayload.estado = 'Facturado';
                 }
-                
+
                 if (Object.keys(updatePayload).length > 0) {
                     await updateDoc(projectRef, updatePayload);
                 }
                 
                 onFinalized();
                 onClose();
-
             } catch (err) {
-                console.error("Error al guardar la factura:", err);
-                setError("Ocurrió un error al guardar la factura.");
+                setError("Ocurrió un error al guardar las facturas.");
+                console.error("Error saving invoices:", err);
                 setLoading(false);
             }
         };
@@ -3193,10 +3273,14 @@ const PendingInvoicesTable = ({ projects, onUpdate }) => {
                 <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-2xl">
                     <h3 className="text-lg font-bold mb-4">Gestionar Facturas: {project.npu}</h3>
                     
-                    <div className="mb-4 border-b">
+                    <div className="mb-4 border-b border-gray-200">
                         <nav className="-mb-px flex space-x-8">
-                            <button onClick={() => setMode('upload')} className={`py-2 px-1 border-b-2 font-medium text-sm ${mode === 'upload' ? 'border-blue-500' : 'border-transparent'}`}>Subir Nueva Factura</button>
-                            <button onClick={() => setMode('link')} className={`py-2 px-1 border-b-2 font-medium text-sm ${mode === 'link' ? 'border-blue-500' : 'border-transparent'}`}>Enlazar Factura Existente</button>
+                            <button onClick={() => setMode('upload')} className={`py-2 px-1 border-b-2 font-medium text-sm ${mode === 'upload' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>
+                                Subir Nueva Factura (XML)
+                            </button>
+                            <button onClick={() => setMode('link')} className={`py-2 px-1 border-b-2 font-medium text-sm ${mode === 'link' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>
+                                Enlazar Factura Existente
+                            </button>
                         </nav>
                     </div>
 
@@ -3204,24 +3288,43 @@ const PendingInvoicesTable = ({ projects, onUpdate }) => {
                         <div className={`grid grid-cols-1 ${!isInternalProvider ? 'md:grid-cols-2' : ''} gap-6`}>
                             <div className="space-y-4 p-4 border rounded-lg">
                                 <h4 className="font-semibold text-gray-800">Factura a Cliente</h4>
-                                {project.facturaClienteId ? <p className="text-green-600">✓ Factura ya adjuntada.</p> : <>
-                                    <input type="text" name="folio" placeholder="Folio Factura" value={clientInvoice.folio} onChange={handleChange(setClientInvoice)} className="block w-full border rounded-md p-2"/>
-                                    <input type="number" name="monto" placeholder="Monto" value={clientInvoice.monto} onChange={handleChange(setClientInvoice)} className="block w-full border rounded-md p-2"/>
-                                    <input type="date" name="fechaEmision" value={clientInvoice.fechaEmision} onChange={handleChange(setClientInvoice)} className="block w-full border rounded-md p-2"/>
-                                    <label className="text-xs">XML:</label><input type="file" name="xmlFile" accept=".xml" onChange={handleFileChange(setClientFiles)} className="block w-full text-sm"/>
-                                    <label className="text-xs">PDF:</label><input type="file" name="pdfFile" accept=".pdf" onChange={handleFileChange(setClientFiles)} className="block w-full text-sm"/>
-                                </>}
+                                {project.facturasClienteIds?.length > 0 ? <p className="text-green-600 font-semibold">✓ Factura ya adjuntada.</p> : (
+                                    <>
+                                        <label className="block text-sm font-medium">Subir archivo XML</label>
+                                        <input type="file" name="clientXml" accept=".xml" onChange={(e) => handleFileChange(e, 'client')} className="block w-full text-sm"/>
+                                        {clientInvoiceData && (
+                                            <div className="text-xs bg-gray-50 p-2 rounded-md mt-2 space-y-1">
+                                                <p><strong>Folio:</strong> {clientInvoiceData.folio}</p>
+                                                <p><strong>Subtotal:</strong> ${clientInvoiceData.subtotal.toFixed(2)}</p>
+                                                <p><strong>IVA:</strong> ${clientInvoiceData.iva.toFixed(2)}</p>
+                                                <p><strong>Total:</strong> ${clientInvoiceData.monto.toFixed(2)}</p>
+                                                <p><strong>Fecha:</strong> {clientInvoiceData.fechaEmision.toLocaleDateString()}</p>
+                                                <p className="truncate"><strong>UUID:</strong> {clientInvoiceData.uuid}</p>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
                             </div>
+
                             {!isInternalProvider && (
                                 <div className="space-y-4 p-4 border rounded-lg">
                                     <h4 className="font-semibold text-gray-800">Factura de Proveedor</h4>
-                                    {project.facturaProveedorId ? <p className="text-green-600">✓ Factura ya adjuntada.</p> : <>
-                                        <input type="text" name="folio" placeholder="Folio Factura" value={providerInvoice.folio} onChange={handleChange(setProviderInvoice)} className="block w-full border rounded-md p-2"/>
-                                        <input type="number" name="monto" placeholder="Monto" value={providerInvoice.monto} onChange={handleChange(setProviderInvoice)} className="block w-full border rounded-md p-2"/>
-                                        <input type="date" name="fechaEmision" value={providerInvoice.fechaEmision} onChange={handleChange(setProviderInvoice)} className="block w-full border rounded-md p-2"/>
-                                        <label className="text-xs">XML:</label><input type="file" name="xmlFile" accept=".xml" onChange={handleFileChange(setProviderFiles)} className="block w-full text-sm"/>
-                                        <label className="text-xs">PDF:</label><input type="file" name="pdfFile" accept=".pdf" onChange={handleFileChange(setProviderFiles)} className="block w-full text-sm"/>
-                                    </>}
+                                    {project.facturasProveedorIds?.length > 0 ? <p className="text-green-600 font-semibold">✓ Factura ya adjuntada.</p> : (
+                                        <>
+                                            <label className="block text-sm font-medium">Subir archivo XML</label>
+                                            <input type="file" name="providerXml" accept=".xml" onChange={(e) => handleFileChange(e, 'provider')} className="block w-full text-sm"/>
+                                            {providerInvoiceData && (
+                                                <div className="text-xs bg-gray-50 p-2 rounded-md mt-2 space-y-1">
+                                                    <p><strong>Folio:</strong> {providerInvoiceData.folio}</p>
+                                                    <p><strong>Subtotal:</strong> ${providerInvoiceData.subtotal.toFixed(2)}</p>
+                                                    <p><strong>IVA:</strong> ${providerInvoiceData.iva.toFixed(2)}</p>
+                                                    <p><strong>Total:</strong> ${providerInvoiceData.monto.toFixed(2)}</p>
+                                                    <p><strong>Fecha:</strong> {providerInvoiceData.fechaEmision.toLocaleDateString()}</p>
+                                                    <p className="truncate"><strong>UUID:</strong> {providerInvoiceData.uuid}</p>
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -3229,25 +3332,25 @@ const PendingInvoicesTable = ({ projects, onUpdate }) => {
 
                     {mode === 'link' && (
                         <div className={`grid grid-cols-1 ${!isInternalProvider ? 'md:grid-cols-2' : ''} gap-6`}>
-                            <div className="space-y-4 p-4 border rounded-lg">
+                            <div className="space-y-2 p-4 border rounded-lg">
                                 <h4 className="font-semibold text-gray-800">Enlazar Factura de Cliente</h4>
                                 <select value={selectedClientInvoiceId} onChange={(e) => setSelectedClientInvoiceId(e.target.value)} className="block w-full border rounded-md p-2">
                                     <option value="">Seleccione una factura...</option>
                                     {linkableInvoices.filter(inv => inv.tipo === 'cliente').map(inv => (
                                         <option key={inv.id} value={inv.id}>
-                                            {`Folio: ${inv.folio} - ${inv.clienteNombre} - $${inv.monto.toFixed(2)}`}
+                                            {`Folio: ${inv.folio} - ${inv.clienteNombre || inv.descripcion} - $${inv.monto.toFixed(2)}`}
                                         </option>
                                     ))}
                                 </select>
                             </div>
                             {!isInternalProvider && (
-                                <div className="space-y-4 p-4 border rounded-lg">
+                                <div className="space-y-2 p-4 border rounded-lg">
                                     <h4 className="font-semibold text-gray-800">Enlazar Factura de Proveedor</h4>
                                     <select value={selectedProviderInvoiceId} onChange={(e) => setSelectedProviderInvoiceId(e.target.value)} className="block w-full border rounded-md p-2">
                                         <option value="">Seleccione una factura...</option>
                                         {linkableInvoices.filter(inv => inv.tipo === 'proveedor').map(inv => (
                                             <option key={inv.id} value={inv.id}>
-                                                {`Folio: ${inv.folio} - ${inv.proveedorNombre} - $${inv.monto.toFixed(2)}`}
+                                                {`Folio: ${inv.folio} - ${inv.proveedorNombre || inv.descripcion} - $${inv.monto.toFixed(2)}`}
                                             </option>
                                         ))}
                                     </select>
@@ -3259,7 +3362,7 @@ const PendingInvoicesTable = ({ projects, onUpdate }) => {
                     <Alert message={error} type="error" onClose={() => setError('')} />
                     <div className="mt-6 flex justify-end space-x-3">
                         <button onClick={onClose} className="bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded">Cancelar</button>
-                        <button onClick={handleSave} className="bg-[#b0ef26] text-black font-bold py-2 px-4 rounded">{loading ? 'Guardando...' : 'Guardar Cambios'}</button>
+                        <button onClick={handleSave} className="bg-[#b0ef26] text-black font-bold py-2 px-4 rounded" disabled={loading}>{loading ? 'Guardando...' : 'Guardar Cambios'}</button>
                     </div>
                 </div>
             </div>
@@ -3322,6 +3425,7 @@ const PendingInvoicesTable = ({ projects, onUpdate }) => {
     );
 };
 
+// modal para subir facturas generales, y ligarlas o no a proyectos existentes
 const InvoicesList = ({ invoiceType, onUpdate }) => {
     const [invoices, setInvoices] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -3357,7 +3461,8 @@ const InvoicesList = ({ invoiceType, onUpdate }) => {
 
     const AddGeneralInvoiceModal = ({ onClose, onFinalized }) => {
         const [formData, setFormData] = useState({ folio: '', monto: '', fechaEmision: new Date().toISOString().split('T')[0], entidadId: '', descripcion: '' });
-        const [files, setFiles] = useState({ xmlFile: null, pdfFile: null });
+        const [xmlFile, setXmlFile] = useState(null);
+        const [invoiceData, setInvoiceData] = useState(null);
         const [entities, setEntities] = useState([]);
         const [otherEntityName, setOtherEntityName] = useState('');
         const [loading, setLoading] = useState(false);
@@ -3376,17 +3481,38 @@ const InvoicesList = ({ invoiceType, onUpdate }) => {
                 setEntities(sortedEntities);
             });
         }, []);
-        
-        const handleChange = (e) => {
-            const { name, value } = e.target;
-            setFormData(prev => ({ ...prev, [name]: value }));
-        };
+
+        useEffect(() => {
+            if (invoiceData) {
+                setFormData(prev => ({
+                    ...prev,
+                    folio: invoiceData.folio,
+                    subtotal: invoiceData.subtotal,
+                    iva: invoiceData.iva,                    
+                    monto: invoiceData.monto,
+                    fechaEmision: invoiceData.fechaEmision.toISOString().split('T')[0]
+                }));
+            }
+        }, [invoiceData]);        
 
         const handleFileChange = (e) => {
-            const { name, files: inputFiles } = e.target;
-            if (inputFiles[0]) {
-                setFiles(prev => ({ ...prev, [name]: inputFiles[0] }));
-            }
+            const file = e.target.files[0];
+            if (!file) return;
+
+            setXmlFile(file);
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const xmlText = event.target.result;
+                const extractedData = parseInvoiceXML(xmlText);
+
+                if (extractedData) {
+                    setInvoiceData(extractedData);
+                    setError('');
+                } else {
+                    setError('Error al leer el XML. Asegúrate de que es un archivo CFDI válido.');
+                }
+            };
+            reader.readAsText(file);
         };
 
         const uploadFile = async (file, path) => {
@@ -3397,29 +3523,28 @@ const InvoicesList = ({ invoiceType, onUpdate }) => {
         };
 
         const handleSave = async () => {
-            if (!formData.folio || !formData.monto || !files.xmlFile || !files.pdfFile || (formData.entidadId === '' || (formData.entidadId === 'otro' && !otherEntityName))) {
-                setError("Todos los campos y archivos son obligatorios.");
+            if (!invoiceData || !xmlFile || (formData.entidadId === '' || (formData.entidadId === 'otro' && !otherEntityName))) {
+                setError("Debes subir un XML válido y seleccionar un cliente/proveedor.");
                 return;
             }
             setLoading(true);
             try {
-                const urlXml = await uploadFile(files.xmlFile, `facturas_${invoiceType}/${Date.now()}/${files.xmlFile.name}`);
-                const urlPdf = await uploadFile(files.pdfFile, `facturas_${invoiceType}/${Date.now()}/${files.pdfFile.name}`);
-                
-                const entityName = formData.entidadId === 'otro' 
-                    ? otherEntityName 
-                    : entities.find(e => e.id === formData.entidadId)?.nombreCompleto || entities.find(e => e.id === formData.entidadId)?.nombre;
+                const urlXml = await uploadFile(xmlFile, `facturas_${invoiceType}/${Date.now()}/${xmlFile.name}`);
+                const entityName = formData.entidadId === 'otro' ? otherEntityName : entities.find(e => e.id === formData.entidadId)?.nombreCompleto || entities.find(e => e.id === formData.entidadId)?.nombre;
 
                 await addDoc(collection(db, "facturas"), {
                     tipo: invoiceType,
                     proyectoId: "general",
                     folio: formData.folio,
+                    uuid: invoiceData.uuid,
+                    subtotal: Number(formData.subtotal),
+                    iva: Number(formData.iva),
                     monto: Number(formData.monto),
                     fechaEmision: Timestamp.fromDate(new Date(formData.fechaEmision)),
                     estado: "Pendiente",
                     descripcion: formData.descripcion || '',
-                    urlXml,
-                    urlPdf,
+                    urlXml: urlXml,
+                    urlPdf: '',
                     [invoiceType === 'cliente' ? 'clienteNombre' : 'proveedorNombre']: entityName
                 });
                 onFinalized();
@@ -3436,7 +3561,12 @@ const InvoicesList = ({ invoiceType, onUpdate }) => {
                 <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg">
                     <h3 className="text-lg font-bold mb-4">Añadir Factura General ({invoiceType})</h3>
                     <div className="space-y-4">
-                        <select value={formData.entidadId} onChange={handleChange} name="entidadId" className="block w-full border rounded-md p-2">
+                        <label className="block text-sm font-medium">Subir archivo XML (la información se cargará automáticamente)</label>
+                        <input type="file" name="xmlFile" accept=".xml" onChange={handleFileChange} className="block w-full text-sm"/>
+                        
+                        <hr/>
+                        
+                        <select value={formData.entidadId} onChange={(e) => setFormData(prev => ({...prev, entidadId: e.target.value}))} name="entidadId" className="block w-full border rounded-md p-2">
                             <option value="">Seleccione un {invoiceType}</option>
                             {entities.map(e => <option key={e.id} value={e.id}>{e.nombreCompleto || e.nombre}</option>)}
                             <option value="otro">Otro (especificar)</option>
@@ -3444,17 +3574,18 @@ const InvoicesList = ({ invoiceType, onUpdate }) => {
                         {formData.entidadId === 'otro' && (
                             <input type="text" value={otherEntityName} onChange={(e) => setOtherEntityName(e.target.value)} placeholder={`Nombre del ${invoiceType}`} className="block w-full border rounded-md p-2"/>
                         )}
-                        <input type="text" name="descripcion" placeholder="Descripción (ej: Renta de oficina)" value={formData.descripcion} onChange={handleChange} className="block w-full border rounded-md p-2"/>
-                        <input type="text" name="folio" placeholder="Folio" value={formData.folio} onChange={handleChange} className="block w-full border rounded-md p-2"/>
-                        <input type="number" name="monto" placeholder="Monto" value={formData.monto} onChange={handleChange} className="block w-full border rounded-md p-2"/>
-                        <input type="date" name="fechaEmision" value={formData.fechaEmision} onChange={handleChange} className="block w-full border rounded-md p-2"/>
-                        <label className="text-xs">XML:</label><input type="file" name="xmlFile" accept=".xml" onChange={handleFileChange} className="block w-full text-sm"/>
-                        <label className="text-xs">PDF:</label><input type="file" name="pdfFile" accept=".pdf" onChange={handleFileChange} className="block w-full text-sm"/>
+                        <input type="text" name="descripcion" placeholder="Descripción (ej: Renta de oficina)" value={formData.descripcion} onChange={(e) => setFormData(prev => ({...prev, descripcion: e.target.value}))} className="block w-full border rounded-md p-2"/>
+                        
+                        <input type="text" name="folio" placeholder="Folio (del XML)" value={formData.folio} disabled className="block w-full border rounded-md p-2 bg-gray-100"/>
+                        <input type="number" name="subtotal" placeholder="Subtotal (del XML)" value={formData.subtotal || ''} disabled className="block w-full border rounded-md p-2 bg-gray-100"/>
+                        <input type="number" name="iva" placeholder="IVA (del XML)" value={formData.iva || ''} disabled className="block w-full border rounded-md p-2 bg-gray-100"/>
+                        <input type="number" name="monto" placeholder="Monto (del XML)" value={formData.monto} disabled className="block w-full border rounded-md p-2 bg-gray-100"/>
+                        <input type="date" name="fechaEmision" value={formData.fechaEmision} disabled className="block w-full border rounded-md p-2 bg-gray-100"/>
                     </div>
                      <Alert message={error} type="error" onClose={() => setError('')} />
                     <div className="mt-6 flex justify-end space-x-3">
                         <button onClick={onClose}>Cancelar</button>
-                        <button onClick={handleSave} className="bg-[#b0ef26] text-black font-bold py-2 px-4 rounded">{loading ? 'Guardando...' : 'Guardar'}</button>
+                        <button onClick={handleSave} disabled={loading} className="bg-[#b0ef26] text-black font-bold py-2 px-4 rounded">{loading ? 'Guardando...' : 'Guardar Factura'}</button>
                     </div>
                 </div>
             </div>

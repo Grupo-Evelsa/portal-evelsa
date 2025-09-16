@@ -163,7 +163,90 @@ const parseInvoiceXML = (xmlText) => {
     }
 };
 
-// Mi modal de confirmación genérico para acciones simples (ej. "¿Estás seguro?").
+// modal para obtener datos de antiguedad de saldos y graficar
+const AgingReport = () => {
+    const [loading, setLoading] = useState(true);
+    const [reportData, setReportData] = useState(null);
+
+    useEffect(() => {
+        const calculateAgingReport = async () => {
+            setLoading(true);
+            const q = query(
+                collection(db, "facturas"),
+                where("tipo", "==", "cliente"),
+                where("estado", "==", "Pendiente")
+            );
+
+            const snapshot = await getDocs(q);
+            const pendingInvoices = snapshot.docs.map(doc => doc.data());
+
+            const today = new Date();
+            const buckets = {
+                "0-30 Días": 0,
+                "31-60 Días": 0,
+                "61-90 Días": 0,
+                "+90 Días": 0,
+            };
+
+            pendingInvoices.forEach(inv => {
+                const issueDate = inv.fechaEmision.toDate();
+                const diffTime = Math.abs(today - issueDate);
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                if (diffDays <= 30) buckets["0-30 Días"] += inv.monto;
+                else if (diffDays <= 60) buckets["31-60 Días"] += inv.monto;
+                else if (diffDays <= 90) buckets["61-90 Días"] += inv.monto;
+                else buckets["+90 Días"] += inv.monto;
+            });
+            
+            setReportData({
+                labels: Object.keys(buckets),
+                datasets: [{
+                    label: 'Monto Pendiente de Cobro',
+                    data: Object.values(buckets),
+                    backgroundColor: [
+                        'rgba(75, 192, 192, 0.6)',
+                        'rgba(255, 206, 86, 0.6)',
+                        'rgba(255, 159, 64, 0.6)',
+                        'rgba(255, 99, 132, 0.6)',
+                    ],
+                    borderColor: [
+                        'rgba(75, 192, 192, 1)',
+                        'rgba(255, 206, 86, 1)',
+                        'rgba(255, 159, 64, 1)',
+                        'rgba(255, 99, 132, 1)',
+                    ],
+                    borderWidth: 1
+                }]
+            });
+            setLoading(false);
+        };
+
+        calculateAgingReport();
+    }, []);
+
+    if (loading) return <p>Calculando reporte de antigüedad...</p>;
+
+    const options = {
+        indexAxis: 'y', // Para hacer la gráfica de barras horizontal
+        responsive: true,
+        plugins: {
+            legend: { display: false },
+            title: {
+                display: true,
+                text: 'Monto Pendiente de Cobro por Antigüedad'
+            }
+        }
+    };
+
+    return (
+        <div className="bg-white p-6 rounded-xl shadow-md">
+            {reportData && <Bar data={reportData} options={options} />}
+        </div>
+    );
+};
+
+// modal de confirmación genérico para acciones simples (ej. "¿Estás seguro?").
 const ConfirmationModal = ({ title, message, onConfirm, onCancel, confirmText = "Confirmar", cancelText = "Cancelar", confirmColor = "bg-green-600" }) => {
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
@@ -237,7 +320,7 @@ const ProjectFilters = ({ projects, techniciansMap, onFilterChange }) => {
     );
 };
 
-// Mi modal para acciones que necesitan una razón por escrito (ej. rechazar un proyecto).
+// modal para acciones que necesitan una razón por escrito (ej. rechazar un proyecto).
 const ActionWithReasonModal = ({ title, message, onConfirm, onCancel, confirmText = "Confirmar", cancelText = "Cancelar", confirmColor = "bg-orange-600" }) => {
     const [reason, setReason] = useState('');
     return (
@@ -1906,7 +1989,6 @@ const KPIWidget = ({ title, value, unit = '', trend = null }) => {
     );
 };
 
-
 const StatusBadge = ({ status }) => {
     const statusStyles = {
         'Atrasado': 'bg-red-100 text-red-800',
@@ -3054,7 +3136,7 @@ const TecnicoProjectsTable = ({ projects, onUpdateProject, user, userData, handl
 
 // El dashboard de Finanzas. Gestiona las facturas, cuentas por cobrar y por pagar.
 const FinanzasDashboard = ({ user, userData }) => {
-    const [view, setView] = useState('pendientes');
+    const [view, setView] = useState('dashboard');
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -3089,7 +3171,7 @@ const FinanzasDashboard = ({ user, userData }) => {
         
         return unsubscribe;
     };
-
+    
     useEffect(() => {
         let unsubscribe = () => {};
         if (view === 'pendientes') {
@@ -3099,12 +3181,15 @@ const FinanzasDashboard = ({ user, userData }) => {
         }
         return () => unsubscribe();
     }, [view]);
-
+    
     return (
         <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-6">Panel de Finanzas</h1>
             <div className="mb-6 border-b border-gray-200">
                 <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+                    <button onClick={() => setView('dashboard')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'dashboard' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>
+                        Dashboard
+                    </button>
                     <button onClick={() => setView('pendientes')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'pendientes' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>
                         Pendientes de Gestión
                     </button>
@@ -3116,6 +3201,16 @@ const FinanzasDashboard = ({ user, userData }) => {
                     </button>
                 </nav>
             </div>
+
+            {view === 'dashboard' && (
+                <div>
+                    <h2 className="text-2xl font-bold text-gray-800 my-6">Análisis Financiero</h2>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        <AgingReport />
+                        {/* En el futuro, agregar mas graficas conforme se necesites */}
+                    </div>
+                </div>
+            )}
 
             {view === 'pendientes' && (
                 <div>
@@ -3728,7 +3823,6 @@ const InvoicesList = ({ invoiceType, onUpdate }) => {
 
 // El dashboard del Practicante. Recibe los proyectos terminados por los técnicos
 // para preparar los entregables finales para el cliente.
-
 const PracticanteDashboard = () => {
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);

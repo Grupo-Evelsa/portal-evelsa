@@ -2003,47 +2003,88 @@ const StatusBadge = ({ status }) => {
     );
 };
 
+// Componente que para crear la tabla de proyectos activos, con la metrica de los proyectos entregados pendientes, etc
 const OperationalTrackingTable = ({ projects, techniciansMap }) => {
+    const [searchTerm, setSearchTerm] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(10);
+
     const formatDate = (timestamp) => {
         if (!timestamp) return '---';
         const date = timestamp.toDate();
         const userTimezoneOffset = date.getTimezoneOffset() * 60000;
         const adjustedDate = new Date(date.getTime() + userTimezoneOffset);
-        return adjustedDate.toLocaleDateString('es-MX', {
-            year: 'numeric', month: '2-digit', day: '2-digit'
-        });
+        return adjustedDate.toLocaleDateString('es-MX', { year: 'numeric', month: '2-digit', day: '2-digit' });
     };
+    
+    const filteredProjects = projects.filter(p =>
+        (p.npu && p.npu.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (p.clienteNombre && p.clienteNombre.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (p.servicioNombre && p.servicioNombre.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (techniciansMap[p.asignadoTecnicosIds?.[0]] && techniciansMap[p.asignadoTecnicosIds?.[0]].toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+
+    const currentItems = filteredProjects.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+    const totalPages = Math.ceil(filteredProjects.length / itemsPerPage);
+    const paginate = (pageNumber) => setCurrentPage(pageNumber);
 
     return (
-        <div className="overflow-x-auto bg-white rounded-lg shadow mt-6">
-            <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                    <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Planta/Ubicación</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Técnico</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Asignación</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Límite</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notas del Supervisor</th>
-                    </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                    {projects.map(project => (
-                        <tr key={project.id}>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm"><StatusBadge status={project.status} /></td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-800">{project.ubicacionCliente || project.clienteNombre}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{project.servicioNombre}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{techniciansMap[project.asignadoTecnicosIds?.[0]] || 'No asignado'}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{formatDate(project.fechaAsignacionTecnico)}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{formatDate(project.fechaEntregaInterna)}</td>
-                            <td className="px-6 py-4 text-sm text-gray-600" title={project.notasSupervisor}>
-                                <p className="w-48 truncate">{project.notasSupervisor || '---'}</p>
-                            </td>
+        <div className="mt-6">
+            <div className="mb-4 flex flex-col md:flex-row justify-between items-center">
+                <input
+                    type="text"
+                    placeholder="Buscar por NPU, cliente, servicio o técnico..."
+                    className="w-full md:w-1/3 px-3 py-2 border border-gray-300 rounded-md mb-2 md:mb-0"
+                    onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                />
+                <div className="flex items-center">
+                    <span className="text-sm mr-2">Mostrar:</span>
+                    <select value={itemsPerPage} onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }} className="px-2 py-1 border border-gray-300 rounded-md">
+                        <option value={10}>10</option>
+                        <option value={15}>15</option>
+                        <option value={25}>25</option>
+                    </select>
+                </div>
+            </div>
+
+            <div className="overflow-x-auto bg-white rounded-lg shadow">
+                <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                        <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Planta/Ubicación</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Técnico</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Asignación</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Límite</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notas del Supervisor</th>
                         </tr>
-                    ))}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                        {currentItems.map(project => (
+                            <tr key={project.id}>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm"><StatusBadge status={project.status} /></td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-800">{project.ubicacionCliente || project.clienteNombre}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{project.servicioNombre}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{techniciansMap[project.asignadoTecnicosIds?.[0]] || 'No asignado'}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{formatDate(project.fechaAsignacionTecnico)}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{formatDate(project.fechaEntregaInterna)}</td>
+                                <td className="px-6 py-4 text-sm text-gray-600" title={project.notasSupervisor}>
+                                    <p className="w-48 truncate">{project.notasSupervisor || '---'}</p>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+
+            <div className="mt-4 flex justify-between items-center">
+                <span className="text-sm text-gray-700">Página {currentPage} de {totalPages}</span>
+                <div>
+                    <button onClick={() => paginate(currentPage - 1)} disabled={currentPage === 1} className="px-3 py-1 border rounded-md bg-white mr-2 disabled:opacity-50">Anterior</button>
+                    <button onClick={() => paginate(currentPage + 1)} disabled={currentPage === totalPages || totalPages === 0} className="px-3 py-1 border rounded-md bg-white disabled:opacity-50">Siguiente</button>
+                </div>
+            </div>
         </div>
     );
 };
@@ -2057,6 +2098,7 @@ const DirectivoDashboard = () => {
     const [view, setView] = useState('kpis');
     const [opSortBy, setOpSortBy] = useState('sortOrder');
     const [opSortOrder, setOpSortOrder] = useState('asc');
+
 
     /**
      * @param {Array} projects
@@ -2093,16 +2135,27 @@ const DirectivoDashboard = () => {
             if (inv.tipo === 'cliente' && inv.fechaEmision?.toDate && inv.fechaEmision.toDate().getFullYear() === currentYear) {
                 const month = inv.fechaEmision.toDate().getMonth();
                 const invoiceValue = inv.monto || 0;
-                monthlyARData[month].totalFacturado += invoiceValue;
-                if (inv.estado === 'Pagada') { monthlyARData[month].pagado += invoiceValue; }
-                else if (inv.estado === 'Pendiente') {
+
+                if (inv.estado !== 'Cancelada') {
+                    monthlyARData[month].totalFacturado += invoiceValue;
+                }
+                
+                if (inv.estado === 'Pagada') {
+                    monthlyARData[month].pagado += invoiceValue;
+                } else if (inv.estado === 'Pendiente') {
                     if (inv.fechaPromesaPago?.toDate) {
                         const promiseDate = inv.fechaPromesaPago.toDate();
                         promiseDate.setHours(0, 0, 0, 0);
-                        if (promiseDate < today) { monthlyARData[month].vencido += invoiceValue; }
-                        else if (promiseDate.getTime() === today.getTime()) { monthlyARData[month].venceHoy += invoiceValue; }
-                        else { monthlyARData[month].programado += invoiceValue; }
-                    } else { monthlyARData[month].pdteProgramacion += invoiceValue; }
+                        if (promiseDate < today) {
+                            monthlyARData[month].vencido += invoiceValue;
+                        } else if (promiseDate.getTime() === today.getTime()) {
+                            monthlyARData[month].venceHoy += invoiceValue;
+                        } else {
+                            monthlyARData[month].programado += invoiceValue;
+                        }
+                    } else {
+                        monthlyARData[month].pdteProgramacion += invoiceValue;
+                    }
                 }
             }
         });
@@ -2114,6 +2167,7 @@ const DirectivoDashboard = () => {
             const weekStartDate = new Date(todayForWeeks.getTime() + (i * 7 * oneDay));
             weeklyLabels.push(`Sem ${i + 1} (${weekStartDate.getDate()}/${weekStartDate.getMonth() + 1})`);
         }
+        
         invoices.forEach(inv => {
             if (inv.estado === 'Pendiente' && inv.fechaPromesaPago?.toDate) {
                 const promiseDate = inv.fechaPromesaPago.toDate();
@@ -2210,6 +2264,25 @@ const DirectivoDashboard = () => {
             techniciansMap[t.id] = t.nombreCompleto;
         });
 
+                const projectsMap = new Map(projects.map(p => [p.id, p]));
+
+        const processInvoices = (invoiceType) => {
+            return invoices
+                .filter(inv => inv.tipo === invoiceType)
+                .map(inv => {
+                    const project = inv.proyectoId ? projectsMap.get(inv.proyectoId) : null;
+                    return {
+                        ...inv,
+                        planta: project?.ubicacionCliente || project?.clienteNombre,
+                        servicio: project?.servicioNombre || inv.descripcion,
+                    };
+                })
+                .sort((a, b) => b.fechaEmision.toDate() - a.fechaEmision.toDate());
+        };
+        
+        const accountsReceivableList = processInvoices('cliente');
+        const accountsPayableList = processInvoices('proveedor');
+
         return {
             kpis,
             pipeline: { labels, cotizacionData: monthlyProjectsData.map(m => m.cotizacion), activoData: monthlyProjectsData.map(m => m.activo), pendienteFacturaData: monthlyProjectsData.map(m => m.pendienteFactura), totalData: monthlyProjectsData.map(m => m.total) },
@@ -2217,7 +2290,9 @@ const DirectivoDashboard = () => {
             cashFlow: { labels: weeklyLabels, ingresosData: weeklyCashFlowData.map(w => w.ingresos), egresosData: weeklyCashFlowData.map(w => w.egresos) },
             technicianProductivity: { labels: Object.values(techProductivity).map(t => t.name), completedData: Object.values(techProductivity).map(t => t.completed) },
             operationalProjects,
-            techniciansMap
+            techniciansMap,
+            accountsReceivableList,
+            accountsPayableList
         };
     };
 
@@ -2260,6 +2335,14 @@ const DirectivoDashboard = () => {
         return <div className="text-center py-10 text-red-600">{error}</div>;
     }
 
+    const getInvoiceStatusBadge = (status) => {
+        const styles = {
+            'Pagada': 'bg-green-100 text-green-800',
+            'Pendiente': 'bg-orange-100 text-orange-800',
+            'Cancelada': 'bg-gray-100 text-gray-700',
+        };
+        return <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${styles[status] || 'bg-gray-100'}`}>{status}</span>;
+    };
 
     return (
         <div className="space-y-8">
@@ -2274,6 +2357,9 @@ const DirectivoDashboard = () => {
                     </button>
                     <button onClick={() => setView('operativo')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'operativo' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>
                         Seguimiento Operativo
+                    </button>
+                    <button onClick={() => setView('financiero')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'financiero' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>
+                        Seguimiento Financiero
                     </button>
                 </nav>
             </div>
@@ -2337,10 +2423,7 @@ const DirectivoDashboard = () => {
                             </button>
                         </div>
                     </div>
-                
                     <div>
-                        <h2 className="text-2xl font-bold text-gray-800">Proyectos Activos y Pendientes de Entrega</h2>
-                        <p className="text-gray-600 mt-1">Lista ordenada de más a menos crítico según su fecha límite.</p>
                         {dashboardData?.operationalProjects && (
                             <OperationalTrackingTable
                                 projects={dashboardData.operationalProjects}
@@ -2349,6 +2432,67 @@ const DirectivoDashboard = () => {
                         )}
                     </div>
                 </div>    
+            )}
+                        {view === 'financiero' && dashboardData && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    {/* Tabla de Cuentas por Cobrar */}
+                    <div>
+                        <h2 className="text-xl font-bold text-gray-800 mb-4">Cuentas por Cobrar</h2>
+                        <div className="overflow-x-auto bg-white rounded-lg shadow">
+                            <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-gray-50">
+                                    <tr>
+                                        <th className="px-4 py-2 text-left text-xs font-medium uppercase">Estado</th>
+                                        <th className="px-4 py-2 text-left text-xs font-medium uppercase">Monto</th>
+                                        <th className="px-4 py-2 text-left text-xs font-medium uppercase">Planta</th>
+                                        <th className="px-4 py-2 text-left text-xs font-medium uppercase">Servicio</th>
+                                        <th className="px-4 py-2 text-left text-xs font-medium uppercase">Factura</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                    {dashboardData.accountsReceivableList.map(inv => (
+                                        <tr key={inv.id}>
+                                            <td className="px-4 py-2">{getInvoiceStatusBadge(inv.estado)}</td>
+                                            <td className="px-4 py-2 font-semibold text-gray-900">${(inv.monto || 0).toFixed(2)}</td>
+                                            <td className="px-4 py-2">{inv.planta || 'N/A'}</td>
+                                            <td className="px-4 py-2">{inv.servicio || 'General'}</td>
+                                            <td className="px-4 py-2">{inv.folio}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {/* Tabla de Cuentas por Pagar */}
+                    <div>
+                        <h2 className="text-xl font-bold text-gray-800 mb-4">Cuentas por Pagar</h2>
+                        <div className="overflow-x-auto bg-white rounded-lg shadow">
+                             <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-gray-50">
+                                     <tr>
+                                        <th className="px-4 py-2 text-left text-xs font-medium uppercase">Estado</th>
+                                        <th className="px-4 py-2 text-left text-xs font-medium uppercase">Monto</th>
+                                        <th className="px-4 py-2 text-left text-xs font-medium uppercase">Planta</th>
+                                        <th className="px-4 py-2 text-left text-xs font-medium uppercase">Servicio</th>
+                                        <th className="px-4 py-2 text-left text-xs font-medium uppercase">Factura</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                    {dashboardData.accountsPayableList.map(inv => (
+                                        <tr key={inv.id}>
+                                            <td className="px-4 py-2">{getInvoiceStatusBadge(inv.estado)}</td>
+                                            <td className="px-4 py-2 font-semibold text-gray-900">${(inv.monto || 0).toFixed(2)}</td>
+                                            <td className="px-4 py-2">{inv.planta || 'N/A'}</td>
+                                            <td className="px-4 py-2">{inv.servicio || 'General'}</td>
+                                            <td className="px-4 py-2">{inv.folio}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

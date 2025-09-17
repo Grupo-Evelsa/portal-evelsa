@@ -4077,14 +4077,9 @@ const PracticanteDashboard = () => {
         const q = query(collection(db, "proyectos"), where("estado", "in", ["Terminado Internamente", "En Revisión Final"]));
         
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
-            const projectsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setProjects(projectsData);
-            setLoading(false);
-        }, (error) => {
-            console.error("Error fetching projects for practicante: ", error);
+            setProjects(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
             setLoading(false);
         });
-        
         return unsubscribe;
     };
 
@@ -4100,13 +4095,35 @@ const PracticanteDashboard = () => {
             const dateB = b.fechaFinTecnico2 || b.fechaFinTecnico1;
             const fieldA = dateA?.toDate() || new Date(0);
             const fieldB = dateB?.toDate() || new Date(0);
-
             if (fieldA < fieldB) return sortOrder === 'asc' ? -1 : 1;
             if (fieldA > fieldB) return sortOrder === 'asc' ? 1 : -1;
             return 0;
         });
         return sortable;
     }, [projects, sortOrder]);
+
+    const handleSendToReview = async (projectId) => {
+        setSubmittingId(projectId);
+        try {
+            await updateDoc(doc(db, "proyectos", projectId), {
+                estado: 'En Revisión Final',
+                motivoRechazo: deleteField()
+            });
+        } catch (error) {
+            console.error("Error sending project to review:", error);
+            alert("Ocurrió un error al enviar el proyecto a revisión.");
+        } finally {
+            setSubmittingId(null);
+        }
+    };
+
+    const promptSendToReview = (projectId) => {
+        setConfirmingAction({
+            title: "Confirmar Envío",
+            message: "¿Estás seguro de que todos los documentos están listos y quieres enviar este proyecto a revisión final?",
+            onConfirm: () => handleSendToReview(projectId)
+        });
+    };
 
     const ManageFinalDeliveryModal = ({ project, onClose, onFinalized }) => {
         const [heyzineUrl, setHeyzineUrl] = useState(project.urlHeyzine || '');
@@ -4169,30 +4186,6 @@ const PracticanteDashboard = () => {
         );
     };
 
-    const handleSendToReview = async (projectId) => {
-        setSubmittingId(projectId);
-        try {
-            await updateDoc(doc(db, "proyectos", projectId), {
-                estado: 'En Revisión Final',
-                motivoRechazo: deleteField()
-            });
-        } catch (error) {
-            console.error("Error sending project to review:", error);
-            alert("Ocurrió un error al enviar el proyecto a revisión.");
-        } finally {
-            setSubmittingId(null);
-        }
-    };
-
-    const promptSendToReview = (projectId) => {
-        setConfirmingAction({
-            title: "Confirmar Envío",
-            message: "¿Estás seguro de que todos los documentos están listos y quieres enviar este proyecto a revisión final?",
-            onConfirm: () => handleSendToReview(projectId)
-        });
-        setConfirmingAction(null);
-    };
-
     return (
         <div>
             <div className="flex justify-between items-center mb-6">
@@ -4213,71 +4206,77 @@ const PracticanteDashboard = () => {
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
+                                {/* NUEVA COLUMNA DE ESTADO */}
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Documentos del Técnico</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                            {projects.map(project => (
-                                 <tr key={project.id} className={project.motivoRechazo ? "bg-orange-50" : ""}>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{project.npu}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{project.clienteNombre}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{project.servicioNombre}</td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex flex-col space-y-1 text-sm">
-                                            {project.urlEvidenciaTecnico1 && (
-                                                <div className="p-2 border-b">
-                                                    <p className="font-semibold text-xs">Fase 1:</p>
-                                                    <a href={project.urlEvidenciaTecnico1} target="_blank" rel="noopener noreferrer" className="text-blue-600">Ver Evidencia 1</a>
-                                                    <p>Nota Interna 1: <span className="font-semibold">{project.numeroNotaInterna1 || 'N/A'}</span></p>
-                                                </div>
-                                            )}
-                                            {project.urlEvidenciaTecnico2 && (
-                                                <div className="p-2">
-                                                    <p className="font-semibold text-xs">Fase 2:</p>
-                                                    <a href={project.urlEvidenciaTecnico2} target="_blank" rel="noopener noreferrer" className="text-blue-600">Ver Evidencia 2</a>
-                                                    <p>Nota Interna 2: <span className="font-semibold">{project.numeroNotaInterna2 || 'N/A'}</span></p>
-                                                </div>
-                                            )}
-                                            {project.urlEvidenciaTecnico && !project.urlEvidenciaTecnico1 && (
-                                                 <a href={project.urlEvidenciaTecnico} target="_blank" rel="noopener noreferrer" className="text-blue-600">Ver Evidencia</a>
-                                            )}
-                                            
-                                            {project.motivoRechazo && (
-                                                <div className="mt-2 p-2 bg-orange-100 text-orange-800 rounded-md">
-                                                    <p className="font-bold text-xs">Correcciones Pendientes:</p>
-                                                    <p className="text-xs">{project.motivoRechazo}</p>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                        <button onClick={() => setModalProject(project)} className="text-indigo-600 hover:text-indigo-900 mr-4">Gestionar Entrega</button>
-                                        {project.estado === 'Terminado Internamente' && (
-                                            <button 
-                                                onClick={() => promptSendToReview(project.id)} 
-                                                disabled={submittingId === project.id}
-                                                className="text-green-600 hover:text-green-900 disabled:opacity-50"
-                                            >
-                                                {submittingId === project.id ? 'Enviando...' : 'Enviar a Revisión'}
-                                            </button>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
+                            {sortedProjects.map(project => {
+                                const statusClass = project.estado === 'En Revisión Final' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800';
+                                return (
+                                    <tr key={project.id} className={project.motivoRechazo ? "bg-orange-50" : ""}>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{project.npu}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{project.clienteNombre}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{project.servicioNombre}</td>
+                                        {/* NUEVA CELDA DE ESTADO */}
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusClass}`}>
+                                                {project.estado}
+                                            </span>
+                                            {project.motivoRechazo && <p className="text-xs text-orange-700 mt-1">Rechazado</p>}
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <div className="flex flex-col space-y-1 text-sm">
+                                                {project.urlEvidenciaTecnico1 && (
+                                                    <div className="p-2 border-b">
+                                                        <p className="font-semibold text-xs">Fase 1:</p>
+                                                        <a href={project.urlEvidenciaTecnico1} target="_blank" rel="noopener noreferrer" className="text-blue-600">Ver Evidencia 1</a>
+                                                        <p>Nota Interna 1: <span className="font-semibold">{project.numeroNotaInterna1 || 'N/A'}</span></p>
+                                                    </div>
+                                                )}
+                                                {project.urlEvidenciaTecnico2 && (
+                                                    <div className="p-2">
+                                                        <p className="font-semibold text-xs">Fase 2:</p>
+                                                        <a href={project.urlEvidenciaTecnico2} target="_blank" rel="noopener noreferrer" className="text-blue-600">Ver Evidencia 2</a>
+                                                        <p>Nota Interna 2: <span className="font-semibold">{project.numeroNotaInterna2 || 'N/A'}</span></p>
+                                                    </div>
+                                                )}
+                                                {project.urlEvidenciaTecnico && !project.urlEvidenciaTecnico1 && (
+                                                    <a href={project.urlEvidenciaTecnico} target="_blank" rel="noopener noreferrer" className="text-blue-600">Ver Evidencia</a>
+                                                )}
+                                                
+                                                {project.motivoRechazo && (
+                                                    <div className="mt-2 p-2 bg-orange-100 text-orange-800 rounded-md">
+                                                        <p className="font-bold text-xs">Correcciones Pendientes:</p>
+                                                        <p className="text-xs">{project.motivoRechazo}</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                            <div className="flex items-center space-x-4">
+                                                <button onClick={() => setModalProject(project)} className="text-indigo-600 hover:text-indigo-800">Gestionar Entrega</button>
+                                                {/* LÓGICA DE ACCIÓN MEJORADA */}
+                                                {project.estado === 'Terminado Internamente' ? (
+                                                    <button onClick={() => promptSendToReview(project.id)} disabled={submittingId === project.id} className="text-green-600 hover:text-green-800 disabled:opacity-50">
+                                                        {submittingId === project.id ? 'Enviando...' : 'Enviar a Revisión'}
+                                                    </button>
+                                                ) : (
+                                                    <span className="text-sm font-semibold text-gray-500">Enviado</span>
+                                                )}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>
             )}
             {modalProject && <ManageFinalDeliveryModal project={modalProject} onClose={() => setModalProject(null)} onFinalized={fetchProjects} />}
-            {confirmingAction && (
-                <ConfirmationModal 
-                    title={confirmingAction.title}
-                    message={confirmingAction.message}
-                    onConfirm={confirmingAction.onConfirm}
-                    onCancel={() => setConfirmingAction(null)}
-                />
-            )}
+            {confirmingAction && <ConfirmationModal title={confirmingAction.title} message={confirmingAction.message} onConfirm={confirmingAction.onConfirm} onCancel={() => setConfirmingAction(null)} />}
         </div>
     );
 };

@@ -2358,6 +2358,9 @@ const DirectivoDashboard = () => {
         const projectsMap = new Map(projects.map(p => [p.id, p]));
 
         const processInvoices = (invoiceType) => {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
             return invoices
                 .filter(inv => inv.tipo === invoiceType)
                 .map(inv => {
@@ -2365,8 +2368,24 @@ const DirectivoDashboard = () => {
                         ? projectsMap.get(inv.proyectoId)
                         : null;
                     
+                    let calculatedStatus = 'Pend. de Autorización';
+                    if (inv.estado === 'Pagada') {
+                        calculatedStatus = 'Pagada';
+                    } else if (inv.estado === 'Cancelada') {
+                        calculatedStatus = 'Cancelada';
+                    } else if (inv.fechaPromesaPago?.toDate) {
+                        const promiseDate = inv.fechaPromesaPago.toDate();
+                        promiseDate.setHours(0, 0, 0, 0);
+                        if (promiseDate < today) {
+                            calculatedStatus = 'Vencida';
+                        } else {
+                            calculatedStatus = 'Prog. a Pago';
+                        }
+                    }
+
                     return {
                         ...inv,
+                        estado: calculatedStatus, 
                         planta: project?.ubicacionCliente || project?.clienteNombre || inv.clienteNombre || inv.proveedorNombre || 'N/A',
                         servicio: project?.servicioNombre || inv.descripcion || 'Gasto General',
                     };

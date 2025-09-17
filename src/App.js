@@ -2089,6 +2089,95 @@ const OperationalTrackingTable = ({ projects, techniciansMap }) => {
     );
 };
 
+const FinancialTrackingTable = ({ title, invoices, getInvoiceStatusBadge }) => {
+    const [statusFilter, setStatusFilter] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(10);
+
+    const { filteredInvoices, totalSum } = React.useMemo(() => {
+        const filtered = statusFilter
+            ? invoices.filter(inv => inv.estado === statusFilter)
+            : invoices;
+        
+        const sum = filtered.reduce((acc, inv) => acc + (inv.monto || 0), 0);
+
+        return { filteredInvoices: filtered, totalSum: sum };
+    }, [invoices, statusFilter]);
+
+    const currentItems = filteredInvoices.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+    const totalPages = Math.ceil(filteredInvoices.length / itemsPerPage);
+    const paginate = (pageNumber) => setCurrentPage(pageNumber);
+
+    return (
+        <div>
+            <h2 className="text-xl font-bold text-gray-800 mb-4">{title}</h2>
+
+            <div className="mb-4 flex justify-between items-center">
+                <div>
+                    <label htmlFor={`${title}-status-filter`} className="text-sm font-medium mr-2">Filtrar por Estado:</label>
+                    <select
+                        id={`${title}-status-filter`}
+                        value={statusFilter}
+                        onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
+                        className="border-gray-300 rounded-md p-2 text-sm"
+                    >
+                        <option value="">Todos</option>
+                        <option value="Pendiente">Pendiente</option>
+                        <option value="Pagada">Pagada</option>
+                        <option value="Cancelada">Cancelada</option>
+                    </select>
+                </div>
+                 <div className="flex items-center">
+                    <span className="text-sm mr-2">Mostrar:</span>
+                    <select value={itemsPerPage} onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }} className="px-2 py-1 border border-gray-300 rounded-md">
+                        <option value={10}>10</option>
+                        <option value={15}>15</option>
+                        <option value={25}>25</option>
+                    </select>
+                </div>
+            </div>
+
+            <div className="overflow-x-auto bg-white rounded-lg shadow">
+                <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                        <tr>
+                            <th className="px-4 py-2 text-left text-xs font-medium uppercase">Estado</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium uppercase">Monto</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium uppercase">Planta</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium uppercase">Servicio</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium uppercase">Factura</th>
+                        </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                        {currentItems.map(inv => (
+                            <tr key={inv.id}>
+                                <td className="px-4 py-2">{getInvoiceStatusBadge(inv.estado)}</td>
+                                <td className="px-4 py-2 font-semibold text-gray-900">${(inv.monto || 0).toFixed(2)}</td>
+                                <td className="px-4 py-2">{inv.planta || 'N/A'}</td>
+                                <td className="px-4 py-2">{inv.servicio || 'General'}</td>
+                                <td className="px-4 py-2">{inv.folio}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                    <tfoot className="bg-gray-100">
+                        <tr>
+                            <td className="px-4 py-3 font-bold text-right">Total Filtrado:</td>
+                            <td className="px-4 py-3 font-bold text-lg text-gray-900" colSpan="4">${totalSum.toFixed(2)}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+            <div className="mt-4 flex justify-between items-center">
+                <span className="text-sm text-gray-700">Página {currentPage} de {totalPages}</span>
+                <div>
+                    <button onClick={() => paginate(currentPage - 1)} disabled={currentPage === 1} className="px-3 py-1 border rounded-md bg-white mr-2 disabled:opacity-50">Anterior</button>
+                    <button onClick={() => paginate(currentPage + 1)} disabled={currentPage === totalPages || totalPages === 0} className="px-3 py-1 border rounded-md bg-white disabled:opacity-50">Siguiente</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // El dashboard Directivo. Muestra las gráficas y KPIs
 // sobre la salud del negocio que construimos.
 const DirectivoDashboard = () => {
@@ -2264,17 +2353,20 @@ const DirectivoDashboard = () => {
             techniciansMap[t.id] = t.nombreCompleto;
         });
 
-                const projectsMap = new Map(projects.map(p => [p.id, p]));
+        const projectsMap = new Map(projects.map(p => [p.id, p]));
 
         const processInvoices = (invoiceType) => {
             return invoices
                 .filter(inv => inv.tipo === invoiceType)
                 .map(inv => {
-                    const project = inv.proyectoId ? projectsMap.get(inv.proyectoId) : null;
+                    const project = (inv.proyectoId && inv.proyectoId !== 'general')
+                        ? projectsMap.get(inv.proyectoId)
+                        : null;
+                    
                     return {
                         ...inv,
-                        planta: project?.ubicacionCliente || project?.clienteNombre,
-                        servicio: project?.servicioNombre || inv.descripcion,
+                        planta: project?.ubicacionCliente || project?.clienteNombre || inv.clienteNombre || inv.proveedorNombre || 'N/A',
+                        servicio: project?.servicioNombre || inv.descripcion || 'Gasto General',
                     };
                 })
                 .sort((a, b) => b.fechaEmision.toDate() - a.fechaEmision.toDate());
@@ -2433,65 +2525,21 @@ const DirectivoDashboard = () => {
                     </div>
                 </div>    
             )}
-                        {view === 'financiero' && dashboardData && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    {/* Tabla de Cuentas por Cobrar */}
-                    <div>
-                        <h2 className="text-xl font-bold text-gray-800 mb-4">Cuentas por Cobrar</h2>
-                        <div className="overflow-x-auto bg-white rounded-lg shadow">
-                            <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-gray-50">
-                                    <tr>
-                                        <th className="px-4 py-2 text-left text-xs font-medium uppercase">Estado</th>
-                                        <th className="px-4 py-2 text-left text-xs font-medium uppercase">Monto</th>
-                                        <th className="px-4 py-2 text-left text-xs font-medium uppercase">Planta</th>
-                                        <th className="px-4 py-2 text-left text-xs font-medium uppercase">Servicio</th>
-                                        <th className="px-4 py-2 text-left text-xs font-medium uppercase">Factura</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
-                                    {dashboardData.accountsReceivableList.map(inv => (
-                                        <tr key={inv.id}>
-                                            <td className="px-4 py-2">{getInvoiceStatusBadge(inv.estado)}</td>
-                                            <td className="px-4 py-2 font-semibold text-gray-900">${(inv.monto || 0).toFixed(2)}</td>
-                                            <td className="px-4 py-2">{inv.planta || 'N/A'}</td>
-                                            <td className="px-4 py-2">{inv.servicio || 'General'}</td>
-                                            <td className="px-4 py-2">{inv.folio}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
 
-                    {/* Tabla de Cuentas por Pagar */}
-                    <div>
-                        <h2 className="text-xl font-bold text-gray-800 mb-4">Cuentas por Pagar</h2>
-                        <div className="overflow-x-auto bg-white rounded-lg shadow">
-                             <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-gray-50">
-                                     <tr>
-                                        <th className="px-4 py-2 text-left text-xs font-medium uppercase">Estado</th>
-                                        <th className="px-4 py-2 text-left text-xs font-medium uppercase">Monto</th>
-                                        <th className="px-4 py-2 text-left text-xs font-medium uppercase">Planta</th>
-                                        <th className="px-4 py-2 text-left text-xs font-medium uppercase">Servicio</th>
-                                        <th className="px-4 py-2 text-left text-xs font-medium uppercase">Factura</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
-                                    {dashboardData.accountsPayableList.map(inv => (
-                                        <tr key={inv.id}>
-                                            <td className="px-4 py-2">{getInvoiceStatusBadge(inv.estado)}</td>
-                                            <td className="px-4 py-2 font-semibold text-gray-900">${(inv.monto || 0).toFixed(2)}</td>
-                                            <td className="px-4 py-2">{inv.planta || 'N/A'}</td>
-                                            <td className="px-4 py-2">{inv.servicio || 'General'}</td>
-                                            <td className="px-4 py-2">{inv.folio}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+            {view === 'financiero' && dashboardData && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    {/* Tabla Cuentas por Cobrar */}
+                    <FinancialTrackingTable
+                        title="Cuentas por Cobrar"
+                        invoices={dashboardData.accountsReceivableList}
+                        getInvoiceStatusBadge={getInvoiceStatusBadge}
+                    />
+                    {/* Tabla Cuentas por Pagar */}
+                    <FinancialTrackingTable
+                        title="Cuentas por Pagar"
+                        invoices={dashboardData.accountsPayableList}
+                        getInvoiceStatusBadge={getInvoiceStatusBadge}
+                    />
                 </div>
             )}
         </div>

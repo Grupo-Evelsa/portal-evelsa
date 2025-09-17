@@ -2122,7 +2122,9 @@ const FinancialTrackingTable = ({ title, invoices, getInvoiceStatusBadge }) => {
                         className="border-gray-300 rounded-md p-2 text-sm"
                     >
                         <option value="">Todos</option>
-                        <option value="Pendiente">Pendiente</option>
+                        <option value="Pend. de Autorización">Pend. de Autorización</option>
+                        <option value="Prog. a Pago">Prog. a Pago</option>
+                        <option value="Vencida">Vencida</option>
                         <option value="Pagada">Pagada</option>
                         <option value="Cancelada">Cancelada</option>
                     </select>
@@ -2430,7 +2432,9 @@ const DirectivoDashboard = () => {
     const getInvoiceStatusBadge = (status) => {
         const styles = {
             'Pagada': 'bg-green-100 text-green-800',
-            'Pendiente': 'bg-orange-100 text-orange-800',
+            'Vencida': 'bg-red-100 text-red-800',
+            'Prog. a Pago': 'bg-blue-100 text-blue-800',
+            'Pend. de Autorización': 'bg-yellow-100 text-yellow-800',
             'Cancelada': 'bg-gray-100 text-gray-700',
         };
         return <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${styles[status] || 'bg-gray-100'}`}>{status}</span>;
@@ -3889,8 +3893,8 @@ const InvoicesList = ({ invoiceType, onUpdate }) => {
         const handleSave = async () => {
             setLoading(true);
             const updatePayload = {
-                fechaPromesaPago: formData.fechaPromesaPago ? Timestamp.fromDate(new Date(formData.fechaPromesaPago)) : null,
-                fechaPagoReal: formData.fechaPagoReal ? Timestamp.fromDate(new Date(formData.fechaPagoReal)) : null,
+                fechaPromesaPago: formData.fechaPromesaPago ? Timestamp.fromDate(new Date(formData.fechaPromesaPago)) : deleteField(),
+                fechaPagoReal: formData.fechaPagoReal ? Timestamp.fromDate(new Date(formData.fechaPagoReal)) : deleteField(),
             };
             if (formData.fechaPagoReal) {
                 updatePayload.estado = "Pagada";
@@ -3940,11 +3944,26 @@ const InvoicesList = ({ invoiceType, onUpdate }) => {
 
     const formatDate = (timestamp) => !timestamp ? '---' : new Date(timestamp.seconds * 1000).toLocaleDateString('es-MX');
     
-    const getStatusClass = (invoice) => {
-        if (invoice.estado === 'Pagada') return 'bg-green-100 text-green-800';
-        if (invoice.estado === 'Cancelada') return 'bg-gray-100 text-gray-500 line-through';
-        if (invoice.fechaVencimiento && invoice.fechaVencimiento.toDate() < new Date()) return 'bg-red-100 text-red-800';
-        return 'bg-orange-100 text-orange-800';
+    const getStatusInfo = (invoice) => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        if (invoice.estado === 'Pagada') {
+            return { text: 'Pagada', class: 'bg-green-100 text-green-800' };
+        }
+        if (invoice.estado === 'Cancelada') {
+            return { text: 'Cancelada', class: 'bg-gray-100 text-gray-700' };
+        }
+        if (invoice.fechaPromesaPago?.toDate) {
+            const promiseDate = invoice.fechaPromesaPago.toDate();
+            promiseDate.setHours(0, 0, 0, 0);
+            if (promiseDate < today) {
+                return { text: 'Vencida', class: 'bg-red-100 text-red-800' };
+            } else {
+                return { text: 'Prog. a Pago', class: 'bg-blue-100 text-blue-800' };
+            }
+        }
+        return { text: 'Pend. de Autorización', class: 'bg-yellow-100 text-yellow-800' };
     };
 
     return (
@@ -3986,8 +4005,10 @@ const InvoicesList = ({ invoiceType, onUpdate }) => {
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                        {loading ? <tr><td colSpan="11">Cargando...</td></tr> : currentItems.map(invoice => (
-                            <tr key={invoice.id}>
+                        {loading ? <tr><td colSpan="11">Cargando...</td></tr> : currentItems.map(invoice => {
+                            const statusInfo = getStatusInfo(invoice);
+                            return (
+                                <tr key={invoice.id}>
                                 <td className="px-6 py-4">{invoice.folio}</td>
                                 <td className="px-6 py-4">{invoice.clienteNombre || invoice.proveedorNombre}</td>
                                 <td className="px-6 py-4">{invoice.descripcion || (invoice.proyectoId !== 'general' ? 'Gasto de Proyecto' : '---')}</td>
@@ -3997,10 +4018,15 @@ const InvoicesList = ({ invoiceType, onUpdate }) => {
                                 <td className="px-6 py-4">{formatDate(invoice.fechaEmision)}</td>
                                 <td className="px-6 py-4">{formatDate(invoice.fechaPromesaPago)}</td>
                                 <td className="px-6 py-4">{formatDate(invoice.fechaPagoReal)}</td>
-                                <td className="px-6 py-4"><span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusClass(invoice)}`}>{invoice.estado}</span></td>
+                                <td className="px-6 py-4">
+                                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusInfo.class}`}>
+                                        {statusInfo.text}
+                                    </span>
+                                </td>
                                 <td className="px-6 py-4"><button onClick={() => setModalInvoice(invoice)} className="text-indigo-600">Gestionar</button></td>
                             </tr>
-                        ))}
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>

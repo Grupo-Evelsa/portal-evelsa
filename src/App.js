@@ -1380,8 +1380,8 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">PO Prov.</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Precio</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Costo</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Docs Cliente</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Docs Proveedor</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ref. Cliente</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ref. Proveedor</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fact. Cliente</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fact. Proveedor</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
@@ -1462,15 +1462,20 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
                                             <td className="px-4 py-2 whitespace-nowrap text-sm">{project.clienteNombre}</td>
                                             <td className="px-4 py-2 whitespace-nowrap text-sm">{project.servicioNombre}</td>
                                             <td className="px-4 py-2 whitespace-nowrap text-sm">{project.proveedorNombre}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm">{project.numeroProyectoLaboratorio || '---'}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm">{project.datosEcotech?.numeroProyecto || '---'}</td>
                                             <td className="px-6 py-4 text-sm text-gray-500" title={project.comentariosApertura}>
                                                 <p className="w-32 truncate">{project.comentariosApertura || '---'}</p>
                                             </td>
                                             <td className="px-4 py-2 whitespace-nowrap text-sm">{project.poProveedor}</td>
                                             <td className="px-4 py-2 whitespace-nowrap text-sm text-green-600">${(project.precioCotizacionCliente || 0).toFixed(2)}</td>
                                             <td className="px-4 py-2 whitespace-nowrap text-sm text-red-600">${(project.costoProveedor || 0).toFixed(2)}</td>
-                                            <td className="px-4 py-2"><div className="flex space-x-2">{project.urlCotizacionCliente && <a href={project.urlCotizacionCliente} target="_blank" rel="noopener noreferrer" className="text-blue-500">Cot</a>}{project.urlPOCliente && <a href={project.urlPOCliente} target="_blank" rel="noopener noreferrer" className="text-blue-500">PO</a>}</div></td>
-                                            <td className="px-4 py-2"><div className="flex space-x-2">{project.urlCotizacionProveedor && <a href={project.urlCotizacionProveedor} target="_blank" rel="noopener noreferrer" className="text-blue-500">Cot</a>}{project.urlPOProveedor && <a href={project.urlPOProveedor} target="_blank" rel="noopener noreferrer" className="text-blue-500">PO</a>}</div></td>
+                                            <td className="px-4 py-2 text-xs">
+                                                <p><strong>Cot:</strong> {project.cotizacionClienteRef || 'N/A'}</p>
+                                                <p><strong>PO:</strong> {project.poClienteRef || 'N/A'}</p>
+                                            </td>
+                                            <td className="px-4 py-2 text-xs">
+                                                <p><strong>Cot:</strong> {project.cotizacionProveedorRef || 'N/A'}</p>
+                                            </td>
                                             <td className="px-4 py-2 whitespace-nowrap text-sm">{invoicesMap[project.facturaClienteId] || '---'}</td>
                                             <td className="px-4 py-2 whitespace-nowrap text-sm">{invoicesMap[project.facturaProveedorId] || (project.proveedorNombre?.toLowerCase().trim() === "ecologia y asesoria ambiental" ? 'N/A' : '---')}</td>
                                             <td className="px-4 py-2"><span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${project.estado === 'Activo' ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-800'}`}>{project.estado}</span></td>

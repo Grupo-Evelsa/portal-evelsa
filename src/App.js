@@ -2598,88 +2598,72 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         
-        // El estado final 'Terminado' tiene la máxima prioridad.
         if (project.estatusEcotech === 'Terminado') {
             return { text: 'Terminado', class: 'bg-blue-100 text-blue-800' };
         }
 
-        // Si se envió digitalmente, verificamos si está vencido el plazo del lab.
         if (project.fechaEnvioDigital?.toDate) {
-            const deadlineLab = addBusinessDays(project.fechaEnvioDigital.toDate(), 15); // 3 semanas * 5 días hábiles
+            const deadlineLab = addBusinessDays(project.fechaEnvioDigital.toDate(), 15);
             if (today > deadlineLab) {
                 return { text: 'Vencido Lab.', class: 'bg-red-100 text-red-800 font-bold' };
             }
-            // Si no está vencido, mostramos el estado guardado.
             return { text: project.estatusEcotech, class: 'bg-green-100 text-green-800' };
         }
 
-        // Si tiene fecha de muestreo, verificamos si está vencido internamente.
         if (project.fechaMuestreo?.toDate) {
             const deadlineInternal = addBusinessDays(project.fechaMuestreo.toDate(), 3);
             if (today > deadlineInternal) {
                 return { text: 'Vencido Internamente', class: 'bg-orange-100 text-orange-800 font-semibold' };
             }
-            // Si no está vencido, mostramos el estado guardado.
             return { text: project.estatusEcotech, class: 'bg-green-100 text-green-800' };
         }
 
-        // Si no se cumple ninguna condición de tiempo, mostramos el estado guardado.
         return { text: project.estatusEcotech || 'Pendiente', class: 'bg-gray-100 text-gray-700' };
     };
 
     const ManageEcotechProjectModal = ({ project, onClose, onFinalized }) => {
-        // Estados para los campos del formulario
-        const [labProjectNumber, setLabProjectNumber] = useState(project.numeroProyectoLaboratorio || '');
-        const [workPoints, setWorkPoints] = useState(project.puntosDeTrabajo || '');
-        const [notes, setNotes] = useState(project.notasEcotech || '');
-        const [guiaEnvio, setGuiaEnvio] = useState(project.numeroGuiaEnvio || '');
-        const [guiaRegreso, setGuiaRegreso] = useState(project.numeroGuiaRegreso || '');
+        const [labProjectNumber, setLabProjectNumber] = useState(project.datosEcotech?.numeroProyecto || '');
+        const [workPoints, setWorkPoints] = useState(project.datosEcotech?.puntosDeTrabajo || '');
+        const [notes, setNotes] = useState(project.datosEcotech?.notas || '');
+        const [guiaEnvio, setGuiaEnvio] = useState(project.datosEcotech?.numeroGuiaEnvio || '');
+        const [guiaRegreso, setGuiaRegreso] = useState(project.datosEcotech?.numeroGuiaRegreso || '');
         const [fechaMuestreo, setFechaMuestreo] = useState('');
         const [loading, setLoading] = useState(false);
-
+        
+        const handleUpdate = async (updateData) => {
+            setLoading(true);
+            const projectRef = doc(db, "proyectos", project.id);
+            await updateDoc(projectRef, updateData);
+            onFinalized();
+            onClose();
+        };
 
         const handleSaveChanges = async () => {
             setLoading(true);
             const projectRef = doc(db, "proyectos", project.id);
             try {
                 await updateDoc(projectRef, {
-                    numeroProyectoLaboratorio: labProjectNumber,
-                    puntosDeTrabajo: Number(workPoints) || 0,
-                    notasEcotech: notes,
-                    numeroGuiaEnvio: guiaEnvio,
-                    numeroGuiaRegreso: guiaRegreso,
+                    "datosEcotech.numeroProyecto": labProjectNumber,
+                    "datosEcotech.puntosDeTrabajo": Number(workPoints) || 0,
+                    "datosEcotech.notas": notes,
+                    "datosEcotech.numeroGuiaEnvio": guiaEnvio,
+                    "datosEcotech.numeroGuiaRegreso": guiaRegreso,
                 });
-                onFinalized(); // Refresca la tabla
-                // No cerramos el modal para que pueda seguir editando.
+                onFinalized(); 
+
             } catch (err) {
-                alert("Error al guardar los cambios.");
+                console.error("Error al guardar los cambios:", err);
+                alert("No se pudieron guardar los cambios.");
             } finally {
                 setLoading(false);
             }
         };
 
-        // Función genérica para avanzar el estado del flujo de trabajo
-        const handleUpdateStatus = async (updateData) => {
-            setLoading(true);
-            const projectRef = doc(db, "proyectos", project.id);
-            try {
-                await updateDoc(projectRef, updateData);
-                onFinalized();
-                onClose(); // Cierra el modal al completar una acción de flujo
-            } catch (err) {
-                alert("Error al actualizar el estado.");
-                setLoading(false);
-            }
-        };
-
-        // Acciones específicas del flujo de trabajo
-        const handleStart = () => handleUpdateStatus({ estatusEcotech: 'Pend. No de proyecto' });
-        const handleSaveSamplingDate = () => handleUpdateStatus({ estatusEcotech: 'En Proceso', fechaMuestreo: Timestamp.fromDate(new Date(fechaMuestreo)) });
-        const handleSendDigital = () => handleUpdateStatus({ estatusEcotech: 'Enviado Dig.', fechaEnvioDigital: Timestamp.now() });
-        // NUEVA ACCIÓN: Marcar como enviado físicamente
-        const handleSendPhysical = () => handleUpdateStatus({ estatusEcotech: 'Enviado Físicamente', numeroGuiaEnvio: guiaEnvio });
-        // ACCIÓN FINAL: Terminar el proyecto
-        const handleFinishProject = () => handleUpdateStatus({ estatusEcotech: 'Terminado', numeroGuiaRegreso: guiaRegreso });
+        const handleStart = () => handleUpdate({ "datosEcotech.estatus": 'Pend. No de proyecto' });
+        const handleSaveSamplingDate = () => handleUpdate({ "datosEcotech.estatus": 'En Proceso', "datosEcotech.fechaMuestreo": Timestamp.fromDate(new Date(fechaMuestreo)) });
+        const handleSendDigital = () => handleUpdate({ "datosEcotech.estatus": 'Enviado Dig.', "datosEcotech.fechaEnvioDigital": Timestamp.now() });
+        const handleSendPhysical = () => handleUpdate({ "datosEcotech.estatus": 'Enviado Físicamente', "datosEcotech.numeroGuiaEnvio": guiaEnvio });
+        const handleFinishProject = () => handleUpdate({ "datosEcotech.estatus": 'Terminado', "datosEcotech.numeroGuiaRegreso": guiaRegreso });
 
         return (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
@@ -2687,7 +2671,6 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
                     <h3 className="text-lg font-bold mb-2">Gestionar Proyecto Ecotech: {project.npu}</h3>
                     <p className="text-sm text-gray-500 mb-6">Estado actual: <span className="font-bold">{project.estatusEcotech || 'Pendiente'}</span></p>
                     
-                    {/* --- ACCIONES CONTEXTUALES DEL FLUJO DE TRABAJO --- */}
                     <div className="space-y-4 mb-6">
                         {project.estatusEcotech === 'Pendiente' && (
                             <button onClick={handleStart} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg">Empezar Tarea</button>
@@ -2702,7 +2685,6 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
                         {project.estatusEcotech === 'En Proceso' && (
                             <button onClick={handleSendDigital} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg">Marcar como "Enviado Digitalmente"</button>
                         )}
-                        {/* NUEVO ESTADO/ACCIÓN */}
                         {project.estatusEcotech === 'Enviado Dig.' && (
                             <div className="p-4 border rounded-md bg-gray-50">
                                 <label className="block text-sm font-medium">Introduce la Guía de Envío Físico</label>
@@ -2710,7 +2692,6 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
                                 <button onClick={handleSendPhysical} disabled={!guiaEnvio} className="w-full mt-3 bg-blue-600 text-white font-bold py-2 rounded-lg disabled:bg-gray-400">Marcar como "Enviado Físicamente"</button>
                             </div>
                         )}
-                        {/* ACCIÓN FINAL */}
                         {project.estatusEcotech === 'Enviado Físicamente' && (
                             <div className="p-4 border rounded-md bg-gray-50">
                                 <label className="block text-sm font-medium">Introduce la Guía de Regreso para Finalizar</label>
@@ -2720,7 +2701,6 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
                         )}
                     </div>
 
-                    {/* --- FORMULARIO GENERAL (siempre visible para notas, etc.) --- */}
                     <div className="space-y-4 border-t pt-6">
                         <h4 className="text-md font-semibold text-gray-800">Información Adicional</h4>
                         <div>
@@ -2739,7 +2719,6 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
 
                     <div className="mt-6 flex justify-end space-x-3">
                         <button onClick={onClose} className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">Cerrar</button>
-                        {/* NUEVO BOTÓN DE GUARDADO GENERAL */}
                         <button onClick={handleSaveChanges} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded">{loading ? 'Guardando...' : 'Guardar Cambios'}</button>
                     </div>
                 </div>
@@ -2800,16 +2779,16 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
                             const displayStatus = getProjectDisplayStatus(project);
                             return (
                                 <tr key={project.id}>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.npu}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.clienteNombre}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.servicioNombre}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.numeroProyectoLaboratorio || '---'}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.puntosDeTrabajo || '---'}</td>
-                                <td className="px-6 py-4 text-sm text-gray-500" title={project.notasEcotech}>
-                                    <p className="w-40 truncate">{project.notasEcotech || '---'}</p>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.numeroGuiaEnvio || '---'}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.numeroGuiaRegreso || '---'}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{project.npu}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{project.clienteNombre}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{project.servicioNombre}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{project.datosEcotech?.numeroProyecto || '---'}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{project.datosEcotech?.puntosDeTrabajo || '---'}</td>
+                                    <td className="px-6 py-4 text-sm text-gray-500" title={project.datosEcotech?.notas}>
+                                        <p className="w-40 truncate">{project.datosEcotech?.notas || '---'}</p>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{project.datosEcotech?.numeroGuiaEnvio || '---'}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{project.datosEcotech?.numeroGuiaRegreso || '---'}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${displayStatus.class}`}>
                                             {displayStatus.text}
@@ -3135,7 +3114,29 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
 
 const TecnicoProjectsTable = ({ projects, onUpdateProject, user, userData, handleStartProject, selectedRole }) => {
     const [modalProject, setModalProject] = useState(null);
-    const [modalType, setModalType] = useState(''); // 'task' o 'log'
+    const [modalType, setModalType] = useState('');
+    const [confirmingAction, setConfirmingAction] = useState(null);
+
+    const handleSoftFinish = async (projectId) => {
+        const projectRef = doc(db, "proyectos", projectId);
+        try {
+            await updateDoc(projectRef, {
+                fechaFinTecnicoReal: Timestamp.now()
+            });
+        } catch (err) {
+            alert("Error al finalizar la tarea técnica.");
+        }
+        setConfirmingAction(null);
+    };
+    
+    const promptSoftFinish = (projectId) => {
+        setConfirmingAction({
+            title: "Confirmar Finalización Técnica",
+            message: "Esta acción registrará la fecha de hoy como tu fin de tarea para este proyecto, pero el proyecto seguirá activo para el supervisor. ¿Estás seguro?",
+            onConfirm: () => handleSoftFinish(projectId),
+            confirmText: "Sí, Finalizar"
+        });
+    };
 
     const ManageTaskModal = ({ project, onClose, onFinalized }) => {
         const [comments, setComments] = useState('');
@@ -3222,28 +3223,30 @@ const TecnicoProjectsTable = ({ projects, onUpdateProject, user, userData, handl
             setError('');
 
             try {
-                const evidenceRef = ref(storage, `evidencia_tecnicos/${project.id}/${evidenceFile.name}`);
+                const evidenceRef = ref(storage, `evidencia_tecnicos/${project.id}/${Date.now()}_${evidenceFile.name}`);
                 const evidenceUploadTask = uploadBytesResumable(evidenceRef, evidenceFile);
                 const evidenceUrl = await getDownloadURL((await evidenceUploadTask).ref);
 
                 const { numeroNota } = await generateAndSaveNota();
                 
                 const projectRef = doc(db, "proyectos", project.id);
+                
                 const updatePayload = {
                     estado: 'Terminado Internamente',
-                    comentariosTecnico: comments
                 };
 
-                if (!project.urlDocumento1) {
-                    updatePayload.urlEvidenciaTecnico1 = evidenceUrl;
-                    updatePayload.numeroNotaInterna1 = numeroNota;
-                    updatePayload.fechaFinTecnico1 = Timestamp.now();
+                if (project.fase1_fechaFinTecnico) {
+                    updatePayload.fase2_comentariosTecnico = comments;
+                    updatePayload.fase2_urlEvidencia = evidenceUrl;
+                    updatePayload.fase2_numeroNotaInterna = numeroNota;
+                    updatePayload.fase2_fechaFinTecnico = Timestamp.now();
                 } else {
-                    updatePayload.urlEvidenciaTecnico2 = evidenceUrl;
-                    updatePayload.numeroNotaInterna2 = numeroNota;
-                    updatePayload.fechaFinTecnico2 = Timestamp.now();
+                    updatePayload.fase1_comentariosTecnico = comments;
+                    updatePayload.fase1_urlEvidencia = evidenceUrl;
+                    updatePayload.fase1_numeroNotaInterna = numeroNota;
+                    updatePayload.fase1_fechaFinTecnico = Timestamp.now();
                 }
-
+                
                 await updateDoc(projectRef, updatePayload);
                 
                 onFinalized();
@@ -3295,29 +3298,40 @@ const TecnicoProjectsTable = ({ projects, onUpdateProject, user, userData, handl
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                        {projects.map(project => (
-                             <tr key={project.id}>
+                        {projects.map(project => {
+                            const isInternalProvider = project.proveedorNombre?.toLowerCase().includes('ecologia');
+                            const isSoftFinished = !!project.fechaFinTecnicoReal;
+                            return (
+                                <tr key={project.id}>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm">{project.clienteNombre}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm">{project.servicioNombre}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm">{formatDate(project.fechaEntregaInterna)}</td>
-                                <td className="px-6 py-4">
-                                    <div className="flex items-center space-x-4">
-                                        {project.tecnicosStatus[user.uid] === 'No Visto' && <button onClick={() => handleStartProject(project)} className="text-green-600 hover:text-green-900">Empezar</button>}
-                                        {project.tecnicosStatus[user.uid] === 'En Proceso' && (
-                                            <>
-                                                <button onClick={() => { setModalProject(project); setModalType('task'); }} className="text-indigo-600">Gestionar Tarea</button>
-                                                <button onClick={() => { setModalProject(project); setModalType('log'); }} className="text-gray-600">Bitácora</button>
-                                            </>
-                                        )}
-                                    </div>
-                                </td>
-                            </tr>
-                        ))}
+                                    <td className="px-6 py-4">
+                                        <div className="flex items-center space-x-4">
+                                            {project.tecnicosStatus[user.uid] === 'No Visto' && <button onClick={() => handleStartProject(project)} className="text-green-600 hover:text-green-900">Empezar</button>}
+                                            {project.tecnicosStatus[user.uid] === 'En Proceso' && (
+                                                <>
+                                                    {isInternalProvider ? (
+                                                        <button onClick={() => { setModalProject(project); setModalType('task'); }} className="text-indigo-600">Gestionar Entrega</button>
+                                                    ) : isSoftFinished ? (
+                                                        <span className="text-sm font-semibold text-green-600">Parte Técnica Finalizada</span>
+                                                    ) : (
+                                                        <button onClick={() => promptSoftFinish(project.id)} className="text-blue-600">Finalizar Parte Técnica</button>
+                                                    )}
+                                                    <button onClick={() => { setModalProject(project); setModalType('log'); }} className="text-gray-600">Bitácora</button>
+                                                </>
+                                            )}
+                                        </div>
+                                    </td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
             {modalProject && modalType === 'task' && <ManageTaskModal project={modalProject} onClose={() => setModalProject(null)} onFinalized={onUpdateProject} />}
             {modalProject && modalType === 'log' && <ProjectLogModal project={modalProject} user={user} userData={userData} onClose={() => setModalProject(null)} selectedRole={selectedRole} />}
+            {confirmingAction && <ConfirmationModal {...confirmingAction} onCancel={() => setConfirmingAction(null)} />}
         </>
     );
 };

@@ -1106,23 +1106,19 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
     }, []);
 
     const ManageProjectModal = ({ project, onClose, onFinalized }) => {
-        const [files, setFiles] = useState({ cotizacionClienteFile: null, poClienteFile: null, cotizacionProveedorFile: null, poProveedorFile: null });
         const [loading, setLoading] = useState(false);
         const [error, setError] = useState('');
-        const [precio, setPrecio] = useState(project.precioCotizacionCliente || '');
-        const [costo, setCosto] = useState(project.costoProveedor || '');
+        const [formData, setFormData] = useState({
+            precioCotizacionCliente: project.precioCotizacionCliente || '',
+            costoProveedor: project.costoProveedor || '',
+            cotizacionClienteRef: project.cotizacionClienteRef || '',
+            poClienteRef: project.poClienteRef || '',
+            cotizacionProveedorRef: project.cotizacionProveedorRef || '',
+        });
 
-        const handleFileChange = (e) => {
-            const { name, files: inputFiles } = e.target;
-            if (inputFiles[0]) setFiles(prev => ({ ...prev, [name]: inputFiles[0] }));
-        };
-
-        const uploadFile = async (file, path) => {
-            if (!file) return null;
-            const storageRef = ref(storage, path);
-            const uploadTask = uploadBytesResumable(storageRef, file);
-            await uploadTask;
-            return await getDownloadURL(uploadTask.snapshot.ref);
+        const handleChange = (e) => {
+            const { name, value } = e.target;
+            setFormData(prev => ({ ...prev, [name]: value }));
         };
 
         const handleSave = async () => {
@@ -1130,21 +1126,14 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
             setError('');
             try {
                 const updatePayload = {
-                    precioCotizacionCliente: Number(precio) || 0,
-                    costoProveedor: Number(costo) || 0,
+                    precioCotizacionCliente: Number(formData.precioCotizacionCliente) || 0,
+                    costoProveedor: Number(formData.costoProveedor) || 0,
+                    cotizacionClienteRef: formData.cotizacionClienteRef,
+                    poClienteRef: formData.poClienteRef,
+                    cotizacionProveedorRef: formData.cotizacionProveedorRef,
                 };
 
-                const urlCotizacionCliente = await uploadFile(files.cotizacionClienteFile, `cotizaciones_clientes/${Date.now()}_${files.cotizacionClienteFile?.name}`);
-                const urlPOCliente = await uploadFile(files.poClienteFile, `po_clientes/${Date.now()}_${files.poClienteFile?.name}`);
-                const urlCotizacionProveedor = await uploadFile(files.cotizacionProveedorFile, `cotizaciones_proveedores/${Date.now()}_${files.cotizacionProveedorFile?.name}`);
-                const urlPOProveedor = await uploadFile(files.poProveedorFile, `po_proveedores/${Date.now()}_${files.poProveedorFile?.name}`);
-
-                if(urlCotizacionCliente) updatePayload.urlCotizacionCliente = urlCotizacionCliente;
-                if(urlPOCliente) updatePayload.urlPOCliente = urlPOCliente;
-                if(urlCotizacionProveedor) updatePayload.urlCotizacionProveedor = urlCotizacionProveedor;
-                if(urlPOProveedor) updatePayload.urlPOProveedor = urlPOProveedor;
-
-                if (urlPOCliente) {
+                if (formData.poClienteRef && project.estado === 'Cotización') {
                     updatePayload.estado = 'Activo';
                     updatePayload.estadoCliente = 'Activo';
                 }
@@ -1154,7 +1143,7 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
                 onFinalized();
                 onClose();
             } catch (err) {
-                setError("Error al subir documentos o guardar cambios.");
+                setError("Error al guardar los cambios.");
                 setLoading(false);
             }
         };
@@ -1163,40 +1152,21 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
             <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
                 <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg">
                     <h3 className="text-lg font-bold mb-4">Gestionar Proyecto: {project.npu}</h3>
-
-                    <div className="grid grid-cols-2 gap-4 mb-6 border-b pb-6">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Precio Cliente (sin IVA)</label>
-                            <input
-                                type="number"
-                                value={precio}
-                                onChange={(e) => setPrecio(e.target.value)}
-                                placeholder="0.00"
-                                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Costo Proveedor (sin IVA)</label>
-                            <input
-                                type="number"
-                                value={costo}
-                                onChange={(e) => setCosto(e.target.value)}
-                                placeholder="0.00"
-                                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm"
-                            />
-                        </div>
-                    </div>
-                    
-                    <h4 className="text-md font-semibold mb-4 text-gray-800">Gestionar Documentos</h4>
                     <div className="space-y-4">
-                        <div><label className="block text-sm font-medium">PDF Cotización Cliente</label>{project.urlCotizacionCliente ? <a href={project.urlCotizacionCliente} target="_blank" rel="noopener noreferrer" className="text-blue-500 text-sm">Ver actual</a> : <input type="file" name="cotizacionClienteFile" onChange={handleFileChange} className="mt-1 block w-full text-sm"/>}</div>
-                        <div><label className="block text-sm font-medium">PDF Orden de Compra (PO) Cliente</label>{project.urlPOCliente ? <a href={project.urlPOCliente} target="_blank" rel="noopener noreferrer" className="text-blue-500 text-sm">Ver actual</a> : <input type="file" name="poClienteFile" onChange={handleFileChange} className="mt-1 block w-full text-sm"/>}</div>
-                        <div><label className="block text-sm font-medium">PDF Cotización Proveedor</label>{project.urlCotizacionProveedor ? <a href={project.urlCotizacionProveedor} target="_blank" rel="noopener noreferrer" className="text-blue-500 text-sm">Ver actual</a> : <input type="file" name="cotizacionProveedorFile" onChange={handleFileChange} className="mt-1 block w-full text-sm"/>}</div>
-                        <div><label className="block text-sm font-medium">PDF Orden de Compra (PO) Proveedor</label>{project.urlPOProveedor ? <a href={project.urlPOProveedor} target="_blank" rel="noopener noreferrer" className="text-blue-500 text-sm">Ver actual</a> : <input type="file" name="poProveedorFile" onChange={handleFileChange} className="mt-1 block w-full text-sm"/>}</div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <input type="number" name="precioCotizacionCliente" value={formData.precioCotizacionCliente} onChange={handleChange} placeholder="Precio Cliente" className="px-3 py-2 border rounded-md"/>
+                            <input type="number" name="costoProveedor" value={formData.costoProveedor} onChange={handleChange} placeholder="Costo Proveedor" className="px-3 py-2 border rounded-md"/>
+                        </div>
+                        <input type="text" name="cotizacionClienteRef" value={formData.cotizacionClienteRef} onChange={handleChange} placeholder="Ref. Cotización Cliente" className="w-full px-3 py-2 border rounded-md"/>
+                        <input type="text" name="poClienteRef" value={formData.poClienteRef} onChange={handleChange} placeholder="Ref. PO Cliente" className="w-full px-3 py-2 border rounded-md"/>
+                        <input type="text" name="cotizacionProveedorRef" value={formData.cotizacionProveedorRef} onChange={handleChange} placeholder="Ref. Cotización Proveedor" className="w-full px-3 py-2 border rounded-md"/>
                     </div>
                     
                     <Alert message={error} type="error" onClose={() => setError('')} />
-                    <div className="mt-6 flex justify-end space-x-3"><button onClick={onClose} disabled={loading} className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">Cancelar</button><button onClick={handleSave} disabled={loading} className="bg-[#b0ef26] hover:bg-[#9ac91e] text-black font-bold py-2 px-4 rounded">{loading ? 'Guardando...' : 'Guardar Cambios'}</button></div>
+                    <div className="mt-6 flex justify-end space-x-3">
+                        <button onClick={onClose} disabled={loading} className="bg-gray-300 hover:bg-gray-400 font-bold py-2 px-4 rounded">Cancelar</button>
+                        <button onClick={handleSave} disabled={loading} className="bg-[#b0ef26] hover:bg-[#9ac91e] text-black font-bold py-2 px-4 rounded">{loading ? 'Guardando...' : 'Guardar Cambios'}</button>
+                    </div>
                 </div>
             </div>
         );

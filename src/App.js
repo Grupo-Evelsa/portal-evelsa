@@ -1407,9 +1407,9 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
                                             <td className="px-4 py-2 whitespace-nowrap text-sm">
                                                 {isEcotech ? (
                                                     <div className="text-xs">
-                                                        <p><strong>Nº Proy:</strong> {project.numeroProyectoLaboratorio || 'N/A'}</p>
-                                                        <p><strong>Puntos:</strong> {project.puntosDeTrabajo || 'N/A'}</p>
-                                                        <p><strong>Estatus:</strong> {project.estatusEcotech || 'N/A'}</p>
+                                                        <p><strong>Nº Proy:</strong> {project.datosEcotech?.numeroProyecto || 'N/A'}</p>
+                                                        <p><strong>Puntos:</strong> {project.datosEcotech?.puntosDeTrabajo || 'N/A'}</p>
+                                                        <p><strong>Estatus:</strong> {project.datosEcotech?.estatus || 'N/A'}</p>
                                                     </div>
                                                 ) : 'N/A'}
                                             </td>                                            

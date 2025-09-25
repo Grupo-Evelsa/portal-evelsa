@@ -88,6 +88,35 @@ const Alert = ({ message, type, onClose }) => {
     );
 };
 
+//logica para cronometrar a los tecnicos
+const useTimer = (startTime) => {
+    const [elapsedTime, setElapsedTime] = useState(0);
+
+    useEffect(() => {
+        if (!startTime) {
+            setElapsedTime(0);
+            return;
+        }
+
+        const startTimestamp = startTime.toDate().getTime();
+        const interval = setInterval(() => {
+            const now = Date.now();
+            setElapsedTime(now - startTimestamp);
+        }, 1000);
+
+        return () => clearInterval(interval);
+    }, [startTime]);
+
+    const formatTime = (ms) => {
+        const totalSeconds = Math.floor(ms / 1000);
+        const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
+        const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
+        const seconds = String(totalSeconds % 60).padStart(2, '0');
+        return `${hours}:${minutes}:${seconds}`;
+    };
+
+    return formatTime(elapsedTime);
+};
 
 //Funcion para los dias laborales
 /**

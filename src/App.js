@@ -858,23 +858,22 @@ const ProjectsShelf = ({ projects, onOpenModal }) => {
 };
 
 const NewProjectForm = ({ onProjectAdded }) => {
-    const [formData, setFormData] = useState({ 
-        clienteId: '', 
-        servicioId: '', 
-        proveedorId: '', 
+    const [formData, setFormData] = useState({
+        clienteId: '',
+        servicioId: '',
+        proveedorId: '',
         comentariosApertura: '',
         fechaApertura: new Date().toISOString().split('T')[0],
         precioCotizacionCliente: '',
-        costoProveedor: ''
+        costoProveedor: '',
+        cotizacionClienteRef: '',
+        poClienteRef: '',
+        cotizacionProveedorRef: '',
+        cantidadUnidades: 1, // se deja por defecto en 1 para los servicios que van a ser variables
     });
-    const [files, setFiles] = useState({
-        cotizacionClienteFile: null,
-        poClienteFile: null,
-        cotizacionProveedorFile: null,
-        poProveedorFile: null
-    });
-    const formRef = React.useRef(null);
 
+    const [selectedService, setSelectedService] = useState(null);
+    const formRef = React.useRef(null);
     const [collections, setCollections] = useState({ clientes: [], servicios: [], proveedores: [] });
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
@@ -912,25 +911,16 @@ const NewProjectForm = ({ onProjectAdded }) => {
     const handleChange = (e) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
-    };
-    
-    const handleFileChange = (e) => {
-        const { name, files: inputFiles } = e.target;
-        if (inputFiles[0]) {
-            setFiles(prev => ({ ...prev, [name]: inputFiles[0] }));
-        }
-    };
 
-    const uploadFile = async (file, path) => {
-        if (!file) return null;
-        const storageRef = ref(storage, path);
-        const uploadTask = uploadBytesResumable(storageRef, file);
-        await uploadTask;
-        return await getDownloadURL(uploadTask.snapshot.ref);
+        if (name === "servicioId") {
+            const service = collections.servicios.find(s => s.id === value);
+            setSelectedService(service);
+        }
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+
         if (!formData.clienteId || !formData.servicioId || !formData.proveedorId) {
             setError('Cliente, Servicio y Proveedor son obligatorios.');
             return;
@@ -939,10 +929,17 @@ const NewProjectForm = ({ onProjectAdded }) => {
         setError('');
 
         try {
-            const urlCotizacionCliente = await uploadFile(files.cotizacionClienteFile, `cotizaciones_clientes/${Date.now()}_${files.cotizacionClienteFile?.name}`);
-            const urlPOCliente = await uploadFile(files.poClienteFile, `po_clientes/${Date.now()}_${files.poClienteFile?.name}`);
-            const urlCotizacionProveedor = await uploadFile(files.cotizacionProveedorFile, `cotizaciones_proveedores/${Date.now()}_${files.cotizacionProveedorFile?.name}`);
-            const urlPOProveedor = await uploadFile(files.poProveedorFile, `po_proveedores/${Date.now()}_${files.poProveedorFile?.name}`);
+            let horasEstimadas = 0;
+            if (selectedService && selectedService.calculoDuracion) {
+                if (selectedService.calculoDuracion.totalHoras) {
+                    horasEstimadas = selectedService.calculoDuracion.totalHoras;
+                } else if (selectedService.calculoDuracion.baseHoras !== undefined) {
+                    const base = selectedService.calculoDuracion.baseHoras || 0;
+                    const porUnidad = selectedService.calculoDuracion.porUnidad || 0;
+                    const cantidad = Number(formData.cantidadUnidades) || 1;
+                    horasEstimadas = base + (porUnidad * cantidad);
+                }
+            }
 
             const anioActual = new Date(formData.fechaApertura).getFullYear();
             const contadorRef = doc(db, "contadores", `proyectos_${anioActual}`);
@@ -955,40 +952,50 @@ const NewProjectForm = ({ onProjectAdded }) => {
             
             const ultimosDosDigitosAnio = anioActual.toString().slice(-2);
             const consecutivoFormateado = nuevoConsecutivo.toString().padStart(3, '0');
-            
             const cliente = collections.clientes.find(c => c.id === formData.clienteId);
             const servicio = collections.servicios.find(s => s.id === formData.servicioId);
             const proveedor = collections.proveedores.find(p => p.id === formData.proveedorId);
-
             const npu = `${cliente.clienteIdNumerico}-${servicio.servicioIdNumerico}-${proveedor.proveedorIdNumerico}-${consecutivoFormateado}${ultimosDosDigitosAnio}`;
-            const poProveedorAuto = isInternalProvider ? "N/A" : npu.slice(-8);
-            const estadoInicial = urlPOCliente ? 'Activo' : 'Cotización';
 
             await addDoc(collection(db, "proyectos"), {
-                fechaApertura: Timestamp.fromDate(new Date(formData.fechaApertura)),
-                npu,
+                npu: npu,
                 clienteId: formData.clienteId,
                 clienteNombre: cliente.nombreCompleto,
                 servicioId: formData.servicioId,
                 servicioNombre: servicio.nombre,
                 proveedorId: formData.proveedorId,
                 proveedorNombre: proveedor.nombre,
-                comentariosApertura: formData.comentariosApertura,
-                estado: estadoInicial,
-                estadoCliente: estadoInicial,
+                fechaApertura: Timestamp.fromDate(new Date(formData.fechaApertura)),
+                estado: formData.poClienteRef ? 'Activo' : 'Cotización',
+                prioridad: "1 - Normal",
                 dependencia: servicio.dependencia || 'Sin Dependencia',
-                asignadoTecnicosIds: [],
-                tecnicosStatus: {},
                 precioCotizacionCliente: Number(formData.precioCotizacionCliente) || 0,
-                urlCotizacionCliente: urlCotizacionCliente || '',
-                urlPOCliente: urlPOCliente || '',
                 costoProveedor: Number(formData.costoProveedor) || 0,
-                poProveedor: poProveedorAuto,
-                urlCotizacionProveedor: urlCotizacionProveedor || '',
-                urlPOProveedor: urlPOProveedor || '',
+                horasEstimadas: horasEstimadas,
+                horasRegistradas: 0,
+                facturasClienteIds: [],
+                facturasProveedorIds: [],
+                faseFacturacion: 'N/A',
+                cotizacionClienteRef: formData.cotizacionClienteRef,
+                poClienteRef: formData.poClienteRef,
+                cotizacionProveedorRef: formData.cotizacionProveedorRef,
+                poProveedor: isInternalProvider ? "N/A" : npu.slice(-8),
+                cantidadUnidades: (selectedService?.calculoDuracion?.porUnidad) ? Number(formData.cantidadUnidades) : null,
+                asignadoTecnicosIds: [],
+                comentariosApertura: formData.comentariosApertura,
+                fechaAsignacionTecnico: null,
+                fechaEntregaInterna: null,
+                notasSupervisor: "",
+                fechaFinTecnicoReal: null,
             });
             
-            setFormData({ clienteId: '', servicioId: '', proveedorId: '', comentariosApertura: '', fechaApertura: new Date().toISOString().split('T')[0], precioCotizacionCliente: '', costoProveedor: '' });
+            setFormData({
+                clienteId: '', servicioId: '', proveedorId: '', comentariosApertura: '',
+                fechaApertura: new Date().toISOString().split('T')[0],
+                precioCotizacionCliente: '', costoProveedor: '', cotizacionClienteRef: '',
+                poClienteRef: '', cotizacionProveedorRef: '', cantidadUnidades: 1,
+            });
+            setSelectedService(null);
             formRef.current.reset();
             if (onProjectAdded) onProjectAdded();
 
@@ -998,6 +1005,8 @@ const NewProjectForm = ({ onProjectAdded }) => {
         }
         setLoading(false);
     };
+
+    const showUnitsInput = selectedService && selectedService.calculoDuracion && selectedService.calculoDuracion.porUnidad;
 
     return (
         <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 mb-8">
@@ -1021,38 +1030,27 @@ const NewProjectForm = ({ onProjectAdded }) => {
                         {collections.proveedores.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
                      </select>
                     <textarea name="comentariosApertura" value={formData.comentariosApertura} onChange={handleChange} placeholder="Comentarios de apertura" className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm"></textarea>
+                    {showUnitsInput && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 capitalize">
+                                Cantidad de {selectedService.calculoDuracion.nombreUnidad || 'Unidades'}
+                            </label>
+                            <input type="number" name="cantidadUnidades" value={formData.cantidadUnidades} onChange={handleChange} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
+                        </div>
+                    )}                
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t pt-6">
                     <div className="space-y-4">
                         <h4 className="font-semibold text-gray-700">Información del Cliente</h4>
-                        <div>
-                            <label className="block text-sm font-medium">Precio Cotización (sin IVA)</label>
-                            <input type="number" name="precioCotizacionCliente" value={formData.precioCotizacionCliente} onChange={handleChange} placeholder="0.00" className="mt-1 block w-full px-3 py-2 border rounded-md"/>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium">PDF Cotización</label>
-                            <input type="file" name="cotizacionClienteFile" onChange={handleFileChange} className="mt-1 block w-full text-sm"/>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium">PDF Orden de Compra (PO)</label>
-                            <input type="file" name="poClienteFile" onChange={handleFileChange} className="mt-1 block w-full text-sm"/>
-                        </div>
+                        <input type="number" name="precioCotizacionCliente" value={formData.precioCotizacionCliente} onChange={handleChange} placeholder="Precio Cotización (con IVA)" className="mt-1 block w-full px-3 py-2 border rounded-md"/>
+                        <input type="text" name="cotizacionClienteRef" value={formData.cotizacionClienteRef} onChange={handleChange} placeholder="Nº o Referencia de Cotización" className="mt-1 block w-full px-3 py-2 border rounded-md"/>
+                        <input type="text" name="poClienteRef" value={formData.poClienteRef} onChange={handleChange} placeholder="Nº de Orden de Compra (PO)" className="mt-1 block w-full px-3 py-2 border rounded-md"/>
                     </div>
                     <div className="space-y-4">
                         <h4 className="font-semibold text-gray-700">Información del Proveedor</h4>
-                        <div>
-                            <label className="block text-sm font-medium">Costo (sin IVA)</label>
-                            <input type="number" name="costoProveedor" value={formData.costoProveedor} onChange={handleChange} placeholder="0.00" disabled={isInternalProvider} className="mt-1 block w-full px-3 py-2 border rounded-md disabled:bg-gray-100"/>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium">{isInternalProvider ? 'Número de Proyecto' : 'PDF Cotización Proveedor'}</label>
-                            <input type="file" name="cotizacionProveedorFile" onChange={handleFileChange} className="mt-1 block w-full text-sm"/>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium">PDF Orden de Compra (PO) Proveedor</label>
-                            <input type="file" name="poProveedorFile" onChange={handleFileChange} className="mt-1 block w-full text-sm"/>
-                        </div>
+                        <input type="number" name="costoProveedor" value={formData.costoProveedor} onChange={handleChange} placeholder="Costo (con IVA)" disabled={isInternalProvider} className="mt-1 block w-full px-3 py-2 border rounded-md disabled:bg-gray-100"/>
+                        <input type="text" name="cotizacionProveedorRef" value={formData.cotizacionProveedorRef} onChange={handleChange} placeholder="Nº o Ref. de Cotización Proveedor" className="mt-1 block w-full px-3 py-2 border rounded-md"/>
                     </div>
                 </div>
 
@@ -4206,7 +4204,6 @@ const PracticanteDashboard = () => {
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
-                                {/* NUEVA COLUMNA DE ESTADO */}
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Documentos del Técnico</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
@@ -4220,7 +4217,6 @@ const PracticanteDashboard = () => {
                                         <td className="px-6 py-4 whitespace-nowrap text-sm">{project.npu}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm">{project.clienteNombre}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm">{project.servicioNombre}</td>
-                                        {/* NUEVA CELDA DE ESTADO */}
                                         <td className="px-6 py-4 whitespace-nowrap text-sm">
                                             <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusClass}`}>
                                                 {project.estado}
@@ -4258,7 +4254,6 @@ const PracticanteDashboard = () => {
                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                             <div className="flex items-center space-x-4">
                                                 <button onClick={() => setModalProject(project)} className="text-indigo-600 hover:text-indigo-800">Gestionar Entrega</button>
-                                                {/* LÓGICA DE ACCIÓN MEJORADA */}
                                                 {project.estado === 'Terminado Internamente' ? (
                                                     <button onClick={() => promptSendToReview(project.id)} disabled={submittingId === project.id} className="text-green-600 hover:text-green-800 disabled:opacity-50">
                                                         {submittingId === project.id ? 'Enviando...' : 'Enviar a Revisión'}

@@ -73,6 +73,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const PROYECTOS_COLLECTION = 'proyectos_v2';
 const storage = getStorage(app);
 
 // Mi componente de Alerta para mostrar mensajes de éxito o error.
@@ -379,7 +380,7 @@ const SupervisorNoteModal = ({ project, onClose, onUpdate }) => {
 
     const handleSave = async () => {
         setLoading(true);
-        const projectRef = doc(db, "proyectos", project.id);
+        const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
         try {
             await updateDoc(projectRef, {
                 notasSupervisor: note,
@@ -785,13 +786,13 @@ const AdminDashboard = () => {
 
     const refreshData = () => {
         setLoading(true);
-        const qProjects = query(collection(db, "proyectos"), orderBy("fechaApertura", "desc"));
+        const qProjects = query(collection(db, PROYECTOS_COLLECTION), orderBy("fechaApertura", "desc"));
         const unsubscribeProjects = onSnapshot(qProjects, (querySnapshot) => {
             setProjects(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
             setLoading(false); 
         });
         
-        const qReview = query(collection(db, "proyectos"), where("estado", "==", "En Revisión Final"));
+        const qReview = query(collection(db, PROYECTOS_COLLECTION), where("estado", "==", "En Revisión Final"));
         const unsubscribeReview = onSnapshot(qReview, (querySnapshot) => {
             setReviewProjects(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         });
@@ -986,7 +987,7 @@ const NewProjectForm = ({ onProjectAdded }) => {
             const proveedor = collections.proveedores.find(p => p.id === formData.proveedorId);
             const npu = `${cliente.clienteIdNumerico}-${servicio.servicioIdNumerico}-${proveedor.proveedorIdNumerico}-${consecutivoFormateado}${ultimosDosDigitosAnio}`;
 
-            await addDoc(collection(db, "proyectos"), {
+            await addDoc(collection(db, PROYECTOS_COLLECTION), {
                 npu: npu,
                 clienteId: formData.clienteId,
                 clienteNombre: cliente.nombreCompleto,
@@ -1167,7 +1168,7 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
                     updatePayload.estadoCliente = 'Activo';
                 }
 
-                await updateDoc(doc(db, "proyectos", project.id), updatePayload);
+                await updateDoc(doc(db, PROYECTOS_COLLECTION, project.id), updatePayload);
                 
                 onFinalized();
                 onClose();
@@ -1231,7 +1232,7 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
                 return;
             }
             setLoading(true);
-            const projectRef = doc(db, "proyectos", project.id);
+            const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
             
             const tecnicosStatus = {};
             tecnicosStatus[selectedTechnicianId] = project.tecnicosStatus?.[selectedTechnicianId] || "No Visto";
@@ -1298,11 +1299,11 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
     };
 
     const handleActivateProject = async (projectId) => {
-        await updateDoc(doc(db, "proyectos", projectId), { estado: 'Activo', estadoCliente: 'Activo' });
+        await updateDoc(doc(db, PROYECTOS_COLLECTION, projectId), { estado: 'Activo', estadoCliente: 'Activo' });
     };
 
     const handleDeleteProject = async (projectId) => {
-        await deleteDoc(doc(db, "proyectos", projectId));
+        await deleteDoc(doc(db, PROYECTOS_COLLECTION, projectId));
         setConfirmingAction(null);
     };
 
@@ -1517,7 +1518,7 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
         if (!confirmingAction || confirmingAction.action !== 'approve') return;
         
         const { project } = confirmingAction.payload;
-        const projectRef = doc(db, "proyectos", project.id);
+        const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
         const isFinalDelivery = !!project.urlDocumento2;
 
         try {
@@ -1548,7 +1549,7 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
         }
 
         const { projectId } = confirmingAction.payload; 
-        const projectRef = doc(db, "proyectos", projectId);
+        const projectRef = doc(db, PROYECTOS_COLLECTION, projectId);
         
         try {
             await updateDoc(projectRef, { estado: 'Terminado Internamente', motivoRechazo: reason });
@@ -1702,7 +1703,7 @@ const ClientDashboard = ({ user, userData }) => {
         if (!user) { setLoading(false); return; }
         
         const q = query(
-            collection(db, "proyectos"), 
+            collection(db, PROYECTOS_COLLECTION), 
             where("clienteId", "==", user.uid),
             where("estadoCliente", "in", ["Activo", "Terminado"])
         );
@@ -2414,7 +2415,7 @@ const DirectivoDashboard = () => {
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const projectsQuery = query(collection(db, "proyectos"));
+                const projectsQuery = query(collection(db, PROYECTOS_COLLECTION));
                 const invoicesQuery = query(collection(db, "facturas"));
                 const techniciansQuery = query(collection(db, "usuarios"), where("rol", "==", "tecnico"));
 
@@ -2578,7 +2579,7 @@ const EcotechDashboard = () => {
     const fetchProjects = () => {
         setLoading(true);
         const q = query(
-            collection(db, "proyectos"), 
+            collection(db, PROYECTOS_COLLECTION), 
             where("proveedorNombre", "==", "Ecotech Ingenieria del Medio Ambiente"),
             where("estado", "!=", "Terminado") 
         );
@@ -2661,7 +2662,7 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
         
         const handleUpdate = async (updateData) => {
             setLoading(true);
-            const projectRef = doc(db, "proyectos", project.id);
+            const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
             await updateDoc(projectRef, updateData);
             onFinalized();
             onClose();
@@ -2669,7 +2670,7 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
 
         const handleSaveChanges = async () => {
             setLoading(true);
-            const projectRef = doc(db, "proyectos", project.id);
+            const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
             try {
                 await updateDoc(projectRef, {
                     "datosEcotech.numeroProyecto": labProjectNumber,
@@ -2947,7 +2948,7 @@ const SupervisorDashboard = ({ user, userData, selectedRole }) => {
 
     useEffect(() => {
         setLoading(true);
-        const qProjects = query(collection(db, "proyectos"), where("estado", "!=", "Cotización"));
+        const qProjects = query(collection(db, PROYECTOS_COLLECTION), where("estado", "!=", "Cotización"));
         const unsubscribeProjects = onSnapshot(qProjects, (snapshot) => {
             setAllProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
             setLoading(false);
@@ -3052,102 +3053,373 @@ const SupervisorDashboard = ({ user, userData, selectedRole }) => {
 // El dashboard del Técnico. Su lista de tareas pendientes y en proceso.
 // Desde aquí empieza a trabajar, usa la bitácora y finaliza sus tareas.
 const TecnicoDashboard = ({ user, userData, selectedRole }) => {
-    const [view, setView] = useState('new');
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [sortBy, setSortBy] = useState('fechaEntregaInterna');
-    const [sortOrder, setSortOrder] = useState('asc');
+    const [activeTaskInfo, setActiveTaskInfo] = useState(null);
+    const [modalProject, setModalProject] = useState(null);
+    const [modalType, setModalType] = useState('');
+    const [confirmingAction, setConfirmingAction] = useState(null);
+    const [showNewProjectsAlert, setShowNewProjectsAlert] = useState(true);
 
+    useEffect(() => {
+        if (!user?.uid) return;
+        let unsubscribeProject = () => {};
+        const userDocRef = doc(db, "usuarios", user.uid);
+        const unsubscribeUser = onSnapshot(userDocRef, (userDoc) => {
+            const taskData = userDoc.data()?.tareaActiva;
+            if (taskData && taskData.projectId) {
+                const projDocRef = doc(db, PROYECTOS_COLLECTION, taskData.projectId);
+                unsubscribeProject = onSnapshot(projDocRef, (projDoc) => {
+                    setActiveTaskInfo({
+                        ...taskData,
+                        projectId: projDoc.id,
+                        projectDetails: projDoc.exists() ? projDoc.data() : null,
+                    });
+                });
+            } else {
+                setActiveTaskInfo(null);
+            }
+        });
+        return () => {
+            unsubscribeUser();
+            unsubscribeProject();
+        };
+    }, [user]);
+    
     useEffect(() => {
         if (!user) return;
         setLoading(true);
-        
-        const statusToQuery = view === 'new' ? "No Visto" : "En Proceso";
-        
         const q = query(
-            collection(db, "proyectos"),
-            where("estado", "==", "Activo"),
-            where(`tecnicosStatus.${user.uid}`, "==", statusToQuery)
+            collection(db, PROYECTOS_COLLECTION),
+            where("asignadoTecnicosIds", "array-contains", user.uid),
+            where("estado", "==", "Activo")
         );
-        
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-            const projectsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setProjects(projectsData);
-            setLoading(false);
-        }, (error) => {
-            console.error(`Error fetching projects for tecnico in view ${view}:`, error);
-            if (error.code === 'failed-precondition') {
-                alert("Se requiere una configuración adicional en la base de datos. Por favor, revise la consola del navegador (F12) para encontrar un enlace y crear el índice necesario.");
-            }
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
             setLoading(false);
         });
-        
         return () => unsubscribe();
-    }, [view, user]);
-
-    const sortedProjects = React.useMemo(() => {
-        const sortable = [...projects];
-        sortable.sort((a, b) => {
-            const fieldA = a[sortBy]?.toDate() || new Date('2999-12-31');
-            const fieldB = b[sortBy]?.toDate() || new Date('2999-12-31');
-            if (fieldA < fieldB) return sortOrder === 'asc' ? -1 : 1;
-            if (fieldA > fieldB) return sortOrder === 'asc' ? 1 : -1;
-            return 0;
-        });
-        return sortable;
-    }, [projects, sortBy, sortOrder]);
+    }, [user]);
     
+    const handleStartWork = async (projectId) => {
+        const userDocRef = doc(db, "usuarios", user.uid);
+        const newActiveTask = { projectId: projectId, inicio: Timestamp.now() };
+        if (activeTaskInfo && activeTaskInfo.projectId) {
+            const timeLogRef = doc(collection(db, "registrosDeTiempo"));
+            await setDoc(timeLogRef, {
+                tecnicoId: user.uid,
+                projectId: activeTaskInfo.projectId,
+                fechaInicio: activeTaskInfo.inicio,
+                fechaFin: Timestamp.now(),
+            });
+        }
+        const projectRef = doc(db, PROYECTOS_COLLECTION, projectId);
+        await updateDoc(projectRef, { [`tecnicosStatus.${user.uid}`]: "En Proceso" });
+        await updateDoc(userDocRef, { tareaActiva: newActiveTask });
+    };
 
-    const handleStartProject = async (project) => {
-        const projectRef = doc(db, "proyectos", project.id);
-        await updateDoc(projectRef, {
-            [`tecnicosStatus.${user.uid}`]: "En Proceso"
+    const handleEndDay = async () => {
+        if (activeTaskInfo) {
+            const userDocRef = doc(db, "usuarios", user.uid);
+            const timeLogRef = doc(collection(db, "registrosDeTiempo"));
+            await setDoc(timeLogRef, {
+                tecnicoId: user.uid,
+                projectId: activeTaskInfo.projectId,
+                fechaInicio: activeTaskInfo.inicio,
+                fechaFin: Timestamp.now(),
+            });
+            await updateDoc(userDocRef, { tareaActiva: deleteField() });
+        }
+        signOut(auth);
+    };
+
+    const handleSoftFinish = async (projectId) => {
+        const projectRef = doc(db, PROYECTOS_COLLECTION, projectId);
+        try {
+            await updateDoc(projectRef, {
+                fechaFinTecnicoReal: Timestamp.now()
+            });
+            toast.success("Tarea técnica finalizada y registrada.");
+        } catch (err) {
+            alert("Error al finalizar la tarea técnica.");
+        }
+        setConfirmingAction(null);
+    };
+    
+    const promptSoftFinish = (projectId) => {
+        setConfirmingAction({
+            title: "Confirmar Finalización Técnica",
+            message: "Esta acción registrará la fecha de hoy como tu fin de tarea, el proyecto seguira activo hasta que generes la nota de entrega. ¿Estás seguro?",
+            onConfirm: () => handleSoftFinish(projectId),
+            confirmText: "Sí, Finalizar"
         });
     };
 
-    return (
-        <div>
-            <div className="flex justify-between items-center mb-6">
-                <h1 className="text-3xl font-bold text-gray-900">Mis Tareas</h1>
-                <div className="flex items-center space-x-4">
-                    <label className="text-sm font-medium">Ordenar por:</label>
-                    <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="border-gray-300 rounded-md p-2 text-sm">
-                        <option value="fechaEntregaInterna">Fecha Límite</option>
-                    </select>
-                    <button onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')} className="p-2 border rounded-md text-sm bg-white shadow-sm">
-                        {sortOrder === 'asc' ? 'Ascendente ↑' : 'Descendente ↓'}
-                    </button>
+    const { newProjectsCount, kanbanProjects } = React.useMemo(() => {
+        const sorted = projects.sort((a, b) => (b.prioridad || "").localeCompare(a.prioridad || ""));
+        const count = projects.filter(p => p.tecnicosStatus?.[user.uid] === "No Visto").length;
+        return { newProjectsCount: count, kanbanProjects: sorted };
+    }, [projects, user]);
+
+    const ManageTaskModal = ({ project, onClose, onFinalized }) => {
+        const [comments, setComments] = useState('');
+        const [evidenceFile, setEvidenceFile] = useState(null);
+        const [loading, setLoading] = useState(false);
+        const [error, setError] = useState('');
+
+        const handleFileChange = (e) => {
+            if (e.target.files[0]) {
+                setEvidenceFile(e.target.files[0]);
+            }
+        };
+
+        const generateAndSaveNota = async () => {
+            if (typeof window.jspdf === 'undefined') {
+                throw new Error("La librería para generar PDFs (jsPDF) no se ha cargado.");
+            }
+            const { jsPDF } = window.jspdf;
+            const pdfDoc = new jsPDF();
+            const anioActual = new Date().getFullYear();
+            const contadorRef = doc(db, "contadores", `notas_entrega_${anioActual}`);
+            
+            const nuevoConsecutivo = await runTransaction(db, async (transaction) => {
+                const contadorDoc = await transaction.get(contadorRef);
+                const nuevoValor = (contadorDoc.exists() ? contadorDoc.data().consecutivo : 0) + 1;
+                transaction.set(contadorRef, { consecutivo: nuevoValor }, { merge: true });
+                return nuevoValor;
+            });
+            const numeroNota = `${anioActual}-${nuevoConsecutivo.toString().padStart(4, '0')}`;
+
+            const logoUrl = "https://www.grupoevelsa.com/assets/images/Logo Evelsa 2.png";
+            const response = await fetch(logoUrl);
+            const blob = await response.blob();
+            const reader = new FileReader();
+            await new Promise((resolve, reject) => {
+                reader.onload = resolve;
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+            });
+            const logoBase64 = reader.result;
+            
+            pdfDoc.addImage(logoBase64, 'PNG', 15, 15, 50, 15);
+            pdfDoc.setFont("helvetica", "bold");
+            pdfDoc.setFontSize(10);
+            pdfDoc.text("ECOLOGÍA Y ASESORÍA AMBIENTAL S. DE R.L. DE C.V.", 105, 35, { align: 'center' });
+            pdfDoc.setFont("helvetica", "normal");
+            pdfDoc.setFontSize(8);
+            pdfDoc.text("HERMANOS ESCOBAR 6150-2 PARQUE INDUSTRIAL OMEGA", 105, 40, { align: 'center' });
+            pdfDoc.text("CP.32410 CD. JUÁREZ, CHIHUAHUA. RFC EAA12060765A", 105, 44, { align: 'center' });
+            pdfDoc.setFontSize(16);
+            pdfDoc.setFont("helvetica", "bold");
+            pdfDoc.text("NOTA DE ENTREGA", 105, 55, { align: 'center' });
+            pdfDoc.text(numeroNota, 180, 65);
+            pdfDoc.setFontSize(11);
+            pdfDoc.setFont("helvetica", "normal");
+            pdfDoc.text(`FECHA: ${new Date().toLocaleDateString('es-MX')}`, 20, 75);
+            pdfDoc.text(`PROYECTO: ${project.npu}`, 20, 85);
+            pdfDoc.text(`NOMBRE/RAZÓN SOCIAL: ${project.clienteNombre}`, 20, 95);
+            pdfDoc.rect(15, 105, 180, 40);
+            pdfDoc.text("DESCRIPCIÓN", 20, 111);
+            pdfDoc.text("CANTIDAD", 170, 111);
+
+            const maxDescriptionWidth = 145;
+            const splitDescription = pdfDoc.splitTextToSize(project.servicioNombre, maxDescriptionWidth);
+            pdfDoc.text(splitDescription, 20, 118);
+
+            pdfDoc.text("1", 175, 118);
+            pdfDoc.text("Comentarios:", 20, 155);
+            const splitComments = pdfDoc.splitTextToSize(comments, 170);
+            pdfDoc.text(splitComments, 20, 162);
+            pdfDoc.text("RECIBIDO POR:", 20, 250);
+            pdfDoc.line(20, 260, 100, 260);
+            pdfDoc.text("NOMBRE Y FIRMA", 45, 265);
+            pdfDoc.save(`Nota_Entrega_${numeroNota}.pdf`);
+            return { numeroNota };
+        };
+
+        const handleCompleteTask = async () => {
+            if (!evidenceFile) {
+                setError("Es obligatorio subir el archivo PDF de evidencia.");
+                return;
+            }
+            setLoading(true);
+            setError('');
+
+            try {
+                const evidenceRef = ref(storage, `evidencia_tecnicos/${project.id}/${Date.now()}_${evidenceFile.name}`);
+                const evidenceUploadTask = uploadBytesResumable(evidenceRef, evidenceFile);
+                const evidenceUrl = await getDownloadURL((await evidenceUploadTask).ref);
+
+                const { numeroNota } = await generateAndSaveNota();
+                
+                const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
+                
+                const updatePayload = {
+                    estado: 'Terminado Internamente',
+                };
+
+                if (project.fase1_fechaFinTecnico) {
+                    updatePayload.fase2_comentariosTecnico = comments;
+                    updatePayload.fase2_urlEvidencia = evidenceUrl;
+                    updatePayload.fase2_numeroNotaInterna = numeroNota;
+                    updatePayload.fase2_fechaFinTecnico = Timestamp.now();
+                } else {
+                    updatePayload.fase1_comentariosTecnico = comments;
+                    updatePayload.fase1_urlEvidencia = evidenceUrl;
+                    updatePayload.fase1_numeroNotaInterna = numeroNota;
+                    updatePayload.fase1_fechaFinTecnico = Timestamp.now();
+                }
+                
+                await updateDoc(projectRef, updatePayload);
+                
+                onFinalized();
+                onClose();
+
+            } catch (err) {
+                console.error("Error al completar la tarea:", err);
+                setError(err.message || "Ocurrió un error al guardar los datos.");
+                setLoading(false);
+            }
+        };
+
+        return (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
+                <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg">
+                    <h3 className="text-lg font-bold mb-4">Gestionar Tarea: {project.npu}</h3>
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700">Comentarios Finales (para Nota de Entrega)</label>
+                            <textarea value={comments} onChange={e => setComments(e.target.value)} rows="4" className="mt-1 block w-full px-3 py-2 border rounded-md"></textarea>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700">Subir Evidencia Técnica (PDF)</label>
+                            <input type="file" accept=".pdf" onChange={handleFileChange} className="mt-1 block w-full text-sm"/>
+                        </div>
+                    </div>
+                    <Alert message={error} type="error" onClose={() => setError('')} />
+                    <div className="mt-6 flex justify-end space-x-3">
+                        <button onClick={onClose} disabled={loading} className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">Cancelar</button>
+                        <button onClick={handleCompleteTask} disabled={loading} className="bg-[#b0ef26] hover:bg-[#9ac91e] text-black font-bold py-2 px-4 rounded">{loading ? 'Enviando...' : 'Generar Nota y Finalizar Tarea'}</button>
+                    </div>
                 </div>
             </div>
+        );
+    };
+    
+    const ProjectCard = ({ project }) => {
+        const isWorkingOnThis = activeTaskInfo?.projectId === project.id;
+        const buttonText = isWorkingOnThis ? 'Trabajando en este' : activeTaskInfo ? 'Cambiar a este Proyecto' : 'Empezar a Trabajar';
+        return (
+            <div className={`p-4 bg-white rounded-lg shadow-md border-l-4 transition-all ${isWorkingOnThis ? 'ring-2 ring-blue-500' : ''} ${project.prioridad === '3 - Urgente' ? 'border-red-500' : project.prioridad === '2 - Alta' ? 'border-orange-500' : 'border-gray-300'}`}>
+                <p className="font-bold text-gray-800">{project.servicioNombre}</p>
+                <p className="text-sm text-gray-600">{project.clienteNombre}</p>
+                <p className="text-sm text-gray-400">{project.npu}</p>
+                <p className="text-xs text-gray-400 mt-2">Prioridad: <span className="font-semibold">{project.prioridad || 'N/A'}</span></p>
+                <button
+                    onClick={() => handleStartWork(project.id)}
+                    disabled={isWorkingOnThis}
+                    className="w-full mt-4 bg-green-600 text-white font-bold py-2 rounded-lg disabled:bg-gray-400 hover:bg-green-700"
+                >
+                    {buttonText}
+                </button>
+            </div>
+        );
+    };
+    
+    const ActiveProjectTools = ({ project }) => {
+        if (!project) return null;
+        const isInternalProvider = project.projectDetails.proveedorNombre?.toLowerCase().includes('ecologia');
+        const isSoftFinished = !!project.projectDetails.fechaFinTecnicoReal;
+        return (
+            <div className="bg-white p-6 rounded-lg shadow-lg">
+                <h3 className="text-lg font-bold mb-4">Herramientas para: {project.projectDetails.npu}</h3>
+                <div className="space-y-4">
+                    <button onClick={() => { setModalProject(project.projectDetails); setModalType('log'); }} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-600 hover:bg-gray-700">Ver Bitácora</button>
+                    {isInternalProvider ? (
+                        <button onClick={() => { setModalProject(project.projectDetails); setModalType('task'); }} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">Generar Nota de Entrega</button>
+                    ) : isSoftFinished ? (
+                        <p className="text-center p-2 bg-green-100 text-green-800 rounded-md text-sm font-semibold">Parte Técnica Finalizada</p>
+                    ) : (
+                        <button onClick={() => promptSoftFinish(project.projectId)} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">Finalizar Parte Técnica</button>
+                    )}
+                </div>
+            </div>
+        );
+    };
+    
+    const WelcomePanel = () => (
+        <div className="text-center p-10 bg-white rounded-lg shadow-lg h-full flex flex-col justify-center">
+            <h2 className="text-2xl font-semibold text-gray-700 mb-4">¿En qué vas a trabajar hoy?</h2>
+            <p className="text-gray-500">Selecciona un proyecto de tu Kanban para empezar trabajar en un proyecto.</p>
+        </div>
+    );
+
+    return (
+        <div>
+            {activeTaskInfo && <ActiveTaskBanner task={activeTaskInfo} onEndDay={handleEndDay} />}
             
-            <div className="mb-6 border-b border-gray-200">
-                <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-                    <button onClick={() => setView('new')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'new' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>Nuevas Tareas</button>
-                    <button onClick={() => setView('inProgress')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'inProgress' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>Tareas en Proceso</button>
-                </nav>
+            {newProjectsCount > 0 && showNewProjectsAlert && (
+                <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-6 rounded-md shadow-md relative" role="alert">
+                    <button onClick={() => setShowNewProjectsAlert(false)} className="absolute top-2 right-2 text-yellow-700 font-bold text-lg">&times;</button>
+                    <p className="font-bold">¡Atención!</p>
+                    <p>Tienes {newProjectsCount} proyecto(s) nuevo(s) asignado(s). ¡Revísalos en tu Kanban!</p>
+                </div>
+            )}
+            
+            <div className="grid grid-cols-1 lg:grid-cols-[2fr,1fr] gap-8">
+                <div >
+                    <h2 className="text-xl font-bold text-gray-800 mb-4">Mi Tares Activas</h2>
+                    {loading ? <p>Cargando...</p> : (
+                        <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-4 rounded-lg">
+                            {kanbanProjects.length > 0 ? (
+                                kanbanProjects.map(project => <ProjectCard key={project.id} project={project} />)
+                            ) : (
+                                <p className="text-gray-500 p-4 bg-white rounded-md">No tienes proyectos activos asignados.</p>
+                            )}
+                        </div>
+                    )}
+                </div>
+                <div className="sticky top-40 h-fit">
+                    {activeTaskInfo ? (
+                        <ActiveProjectTools project={activeTaskInfo} />
+                    ) : (
+                        <WelcomePanel />
+                    )}
+                </div>
             </div>
 
-            {loading ? <p>Cargando tareas...</p> : (
-                <TecnicoProjectsTable
-                    projects={sortedProjects}
-                    onUpdateProject={() => {}}
-                    user={user}
-                    userData={userData}
-                    handleStartProject={handleStartProject}
-                    selectedRole={selectedRole}
-                />
-            )}
+            {modalProject && modalType === 'log' && <ProjectLogModal project={modalProject} user={user} userData={userData} onClose={() => setModalProject(null)} selectedRole={selectedRole} />}
+            {modalProject && modalType === 'task' && <ManageTaskModal project={modalProject} onClose={() => setModalProject(null)} onFinalized={() => {}} />}
+            {confirmingAction && <ConfirmationModal {...confirmingAction} onCancel={() => setConfirmingAction(null)} />}
         </div>
     );
 };
 
+const ActiveTaskBanner = ({ task, onEndDay }) => {
+    const elapsedTime = useTimer(task.inicio);
+    return (
+        <div className="bg-blue-600 text-white p-4 rounded-lg shadow-lg mb-8 flex justify-between items-center sticky top-20 z-30">
+            <div>
+                <p className="font-bold">Trabajando ahora en:</p>
+                <p className="text-lg">{task.projectDetails?.npu} - {task.projectDetails?.servicioNombre}</p>
+            </div>
+            <div className="flex items-center space-x-6">
+                <p className="text-2xl font-mono">{elapsedTime}</p>
+                <button onClick={onEndDay} className="bg-red-600 hover:bg-red-700 font-bold py-3 px-4 rounded-lg">Finalizar Día</button>
+            </div>
+        </div>
+    );
+};
+
+// Tabla quedo obsoleta debido a las modificaciones al dashboard del tecnico
+/*
 const TecnicoProjectsTable = ({ projects, onUpdateProject, user, userData, handleStartProject, selectedRole }) => {
     const [modalProject, setModalProject] = useState(null);
     const [modalType, setModalType] = useState('');
     const [confirmingAction, setConfirmingAction] = useState(null);
 
     const handleSoftFinish = async (projectId) => {
-        const projectRef = doc(db, "proyectos", projectId);
+        const projectRef = doc(db, PROYECTOS_COLLECTION, projectId);
         try {
             await updateDoc(projectRef, {
                 fechaFinTecnicoReal: Timestamp.now()
@@ -3258,7 +3530,7 @@ const TecnicoProjectsTable = ({ projects, onUpdateProject, user, userData, handl
 
                 const { numeroNota } = await generateAndSaveNota();
                 
-                const projectRef = doc(db, "proyectos", project.id);
+                const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
                 
                 const updatePayload = {
                     estado: 'Terminado Internamente',
@@ -3364,6 +3636,7 @@ const TecnicoProjectsTable = ({ projects, onUpdateProject, user, userData, handl
         </>
     );
 };
+*/
 
 // El dashboard de Finanzas. Gestiona las facturas, cuentas por cobrar y por pagar.
 const FinanzasDashboard = ({ user, userData }) => {
@@ -3373,7 +3646,7 @@ const FinanzasDashboard = ({ user, userData }) => {
 
     const fetchPendingProjects = () => {
         setLoading(true);
-        const q = query(collection(db, "proyectos"), where("estado", "in", ["Pendiente de Factura", "Facturado"]));
+        const q = query(collection(db, PROYECTOS_COLLECTION), where("estado", "in", ["Pendiente de Factura", "Facturado"]));
         
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
             const projectsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -3381,7 +3654,7 @@ const FinanzasDashboard = ({ user, userData }) => {
             projectsData.forEach(project => {
                 if (project.estado === 'Facturado' && project.faseFacturacion === 'Preliminar') {
                     console.log(`[AUTO-REACTIVACIÓN] Proyecto ${project.npu} detectado para Fase 2.`);
-                    const projectRef = doc(db, "proyectos", project.id);
+                    const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
                     const newTecnicosStatus = {};
                     if (project.asignadoTecnicosIds) {
                         project.asignadoTecnicosIds.forEach(techId => {
@@ -3522,7 +3795,7 @@ const PendingInvoicesTable = ({ projects, onUpdate }) => {
             setLoading(true);
             setError('');
             try {
-                const projectRef = doc(db, "proyectos", project.id);
+                const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
                 const updatePayload = {};
 
                 if (mode === 'upload') {
@@ -3947,7 +4220,7 @@ const InvoicesList = ({ invoiceType, onUpdate }) => {
                 await updateDoc(doc(db, "facturas", invoice.id), { estado: "Cancelada" });
                 if (invoice.proyectoId && invoice.proyectoId !== 'general') {
                     const fieldToUpdate = invoice.tipo === 'cliente' ? 'facturaClienteId' : 'facturaProveedorId';
-                    await updateDoc(doc(db, "proyectos", invoice.proyectoId), { 
+                    await updateDoc(doc(db, PROYECTOS_COLLECTION, invoice.proyectoId), { 
                         [fieldToUpdate]: deleteField(),
                         estado: 'Pendiente de Factura'
                     });
@@ -4090,7 +4363,7 @@ const PracticanteDashboard = () => {
 
     const fetchProjects = () => {
         setLoading(true);
-        const q = query(collection(db, "proyectos"), where("estado", "in", ["Terminado Internamente", "En Revisión Final"]));
+        const q = query(collection(db, PROYECTOS_COLLECTION), where("estado", "in", ["Terminado Internamente", "En Revisión Final"]));
         
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
             setProjects(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -4121,7 +4394,7 @@ const PracticanteDashboard = () => {
     const handleSendToReview = async (projectId) => {
         setSubmittingId(projectId);
         try {
-            await updateDoc(doc(db, "proyectos", projectId), {
+            await updateDoc(doc(db, PROYECTOS_COLLECTION, projectId), {
                 estado: 'En Revisión Final',
                 motivoRechazo: deleteField()
             });
@@ -4168,7 +4441,7 @@ const PracticanteDashboard = () => {
             if (nota2Url) updatePayload.urlNotaPdf2 = nota2Url;
 
             if (Object.keys(updatePayload).length > 0) {
-                await updateDoc(doc(db, "proyectos", project.id), updatePayload);
+                await updateDoc(doc(db, PROYECTOS_COLLECTION, project.id), updatePayload);
             }
             onFinalized();
             onClose();
@@ -4368,7 +4641,7 @@ const AuthPage = () => {
 };
 
 // El componente principal que envuelve toda la aplicación.
-export default function App() {
+export default function App() { 
     // Aquí manejo el estado principal: quién es el usuario, sus datos y qué rol está usando.
     const [user, setUser] = useState(null);
     const [userData, setUserData] = useState(null);
@@ -4408,12 +4681,36 @@ export default function App() {
         return () => unsubscribe();
     }, []);
 
+    useEffect(() => {
+        const handleBeforeUnload = async (event) => {
+            if (auth.currentUser && userData?.tareaActiva) {
+                console.log("Cierre de ventana detectado, pausando tarea activa...");
+                const userDocRef = doc(db, "usuarios", auth.currentUser.uid);
+                const timeLogRef = doc(collection(db, "registrosDeTiempo"));
+
+                await setDoc(timeLogRef, {
+                    tecnicoId: auth.currentUser.uid,
+                    projectId: userData.tareaActiva.projectId,
+                    fechaInicio: userData.tareaActiva.inicio,
+                    fechaFin: Timestamp.now(),
+                });
+
+                await updateDoc(userDocRef, { tareaActiva: deleteField() });
+            }
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+
+        return () => {
+            window.removeEventListener('beforeunload', handleBeforeUnload);
+        };
+    }, [userData]);    
+
     // Muestro "Cargando..." mientras verifico la sesión.
     if (loading) {
         return <div className="min-h-screen flex items-center justify-center bg-[#cdcdcd] text-gray-700">Cargando...</div>;
     }
 
-    // El contenedor principal de mi app.
     return (
         <div className="bg-[#c9c9c9] min-h-screen font-sans">
                 <ToastContainer
@@ -4429,9 +4726,9 @@ export default function App() {
                 />
              <Header user={user} userData={userData} selectedRole={selectedRole} setSelectedRole={setSelectedRole}/>
              <main>
-                 {/* Si hay un usuario, muestro el Dashboard; si no, la página de Login. */}
                  {user && userData ? <Dashboard user={user} userData={userData} selectedRole={selectedRole} /> : <AuthPage />}
              </main>
         </div>
     );
+
 }

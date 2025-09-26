@@ -1,4 +1,4 @@
-// functions/index.js (Cambia notf. email a pop ups)
+// functions/index.js (notificaciones pop ups)
 
 const {onDocumentCreated, onDocumentUpdated} =
  require("firebase-functions/v2/firestore");
@@ -6,8 +6,6 @@ const {log, error} = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 
 admin.initializeApp();
-
-// --- FUNCIONES AUXILIARES ---
 
 /**
  * Obtiene los datos de un usuario desde Firestore.
@@ -121,7 +119,6 @@ async function archiveFileToColdline(fileUrl) {
   }
 }
 
-// --- TRIGGERS ---
 
 exports.notifyNewLogEntry = onDocumentCreated("bitacoras_proyectos/{logId}",
     async (event) => {
@@ -158,8 +155,6 @@ exports.notifyProjectUpdate =
    const notifyUsers = async (firebaseUserIds, message) => {
      await createNotification(firebaseUserIds, message, projectId);
    };
-
-   // --- LÓGICA DE NOTIFICACIONES POR CAMBIO DE ESTADO ---
 
    if (beforeData.estado === "Cotización" && afterData.estado === "Activo") {
      const message =
@@ -213,7 +208,6 @@ exports.notifyProjectUpdate =
       `Nueva Tarea: Se te ha asignado el proyecto ${afterData.npu}.`;
      await notifyUsers(newTechs, message);
    }
-   // --- LÓGICA DE GESTIÓN DE ARCHIVOS ---
 
    if (beforeData.estado === "En Revisión Final" && (afterData.estado ===
      "Pendiente de Factura" || afterData.estado === "Archivado")) {
@@ -238,3 +232,45 @@ exports.notifyProjectUpdate =
    }
  });
 
+
+/**
+ * Se activa cuando se crea un nuevo registro de tiempo.
+ * Calcula la duración y la suma al total de horas registradas del proyecto.
+ */
+exports.processTimeLog = onDocumentCreated("registrosDeTiempo/{logId}",
+    async (event) => {
+      const snap = event.data;
+      if (!snap) {
+        log("No hay datos en el evento de registro de tiempo.");
+        return;
+      }
+
+      const logData = snap.data();
+      const {projectId, fechaInicio, fechaFin} = logData;
+
+      if (!projectId || !fechaInicio?.toDate || !fechaFin?.toDate) {
+        log("Registro de tiempo incompleto, no se procesará.", logData);
+        return;
+      }
+
+      try {
+        const startTime = fechaInicio.toDate();
+        const endTime = fechaFin.toDate();
+        const durationInMillis = endTime.getTime() - startTime.getTime();
+        const durationInHours = durationInMillis / (1000 * 60 * 60);
+
+        const projectRef =
+         admin.firestore().collection("proyectos").doc(projectId);
+
+        await projectRef.update({
+          horasRegistradas:
+           admin.firestore.FieldValue.increment(durationInHours),
+        });
+
+        log(`Se añadieron ${durationInHours.toFixed(2)} horas al proyecto ${
+          projectId}.`);
+      } catch (err) {
+        error(`Error al procesar el registro de tiempo para el proyecto ${
+          projectId}:`, err);
+      }
+    });

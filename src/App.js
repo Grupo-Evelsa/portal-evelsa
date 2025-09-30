@@ -76,6 +76,29 @@ const db = getFirestore(app);
 const PROYECTOS_COLLECTION = 'proyectos_v2';
 const storage = getStorage(app);
 
+
+const formatDate = (timestamp) => {
+    if (!timestamp) return '---';
+
+    let date;
+    if (typeof timestamp.toDate === 'function') {
+        date = timestamp.toDate();
+    } else {
+        try {
+            date = new Date(timestamp);
+            if (isNaN(date.getTime())) return 'Fecha Inválida';
+        } catch (e) {
+            return 'Fecha Inválida';
+        }
+    }
+
+    const userTimezoneOffset = date.getTimezoneOffset() * 60000;
+    const adjustedDate = new Date(date.getTime() + userTimezoneOffset);
+    return adjustedDate.toLocaleDateString('es-MX', {
+        year: 'numeric', month: '2-digit', day: '2-digit'
+    });
+};
+
 // Mi componente de Alerta para mostrar mensajes de éxito o error.
 const Alert = ({ message, type, onClose }) => {
     if (!message) return null;
@@ -292,7 +315,222 @@ const ConfirmationModal = ({ title, message, onConfirm, onCancel, confirmText = 
     );
 };
 
+const AssignProjectModal = ({ project, onClose, onFinalized }) => {
+    const [technicians, setTechnicians] = useState([]);
+    const [selectedTechnicianId, setSelectedTechnicianId] = useState(
+        (project.asignadoTecnicosIds && project.asignadoTecnicosIds[0]) || ''
+    );
+    const [deliveryDate, setDeliveryDate] = useState(project.fechaEntregaInterna ? project.fechaEntregaInterna.toDate().toISOString().split('T')[0] : '');
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        const fetchTechnicians = async () => {
+            const q1 = query(collection(db, "usuarios"), where("rol", "==", "tecnico"));
+            const q2 = query(collection(db, "usuarios"), where("roles", "array-contains", "tecnico"));
+
+            const [snapshot1, snapshot2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+
+            const techMap = new Map();
+            snapshot1.forEach((doc) => techMap.set(doc.id, { id: doc.id, ...doc.data() }));
+            snapshot2.forEach((doc) => techMap.set(doc.id, { id: doc.id, ...doc.data() }));
+            
+            setTechnicians(Array.from(techMap.values()));
+        };
+        fetchTechnicians();
+    }, []);
+
+    const handleSave = async () => {
+        if (!selectedTechnicianId) {
+            alert("Debes seleccionar un técnico.");
+            return;
+        }
+        setLoading(true);
+        const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
+        
+        const tecnicosStatus = {};
+        tecnicosStatus[selectedTechnicianId] = project.tecnicosStatus?.[selectedTechnicianId] || "No Visto";
+
+        await updateDoc(projectRef, {
+            asignadoTecnicosIds: [selectedTechnicianId],
+            tecnicosStatus: tecnicosStatus,
+            fechaAsignacionTecnico: Timestamp.now(),
+            fechaEntregaInterna: deliveryDate ? Timestamp.fromDate(new Date(deliveryDate)) : null
+        });
+        setLoading(false);
+        onFinalized();
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
+            <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
+                <h3 className="text-lg font-bold mb-4">Asignar Proyecto: {project.npu}</h3>
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Técnico Asignado</label>
+                        <div className="mt-2 max-h-48 overflow-y-auto border rounded-md p-2">
+                            {technicians.map(tech => (
+                                <div key={tech.id} className="flex items-center">
+                                    <input
+                                        type="radio"
+                                        name="technician"
+                                        id={tech.id}
+                                        value={tech.id}
+                                        checked={selectedTechnicianId === tech.id}
+                                        onChange={(e) => setSelectedTechnicianId(e.target.value)}
+                                        className="h-4 w-4 border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                    />
+                                    <label htmlFor={tech.id} className="ml-3 text-sm text-gray-700">{tech.nombreCompleto}</label>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Fecha Límite de Entrega (Interna)</label>
+                        <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
+                    </div>
+                </div>
+                <div className="mt-6 flex justify-end space-x-3">
+                    <button onClick={onClose} disabled={loading} className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">Cancelar</button>
+                    <button onClick={handleSave} disabled={loading} className="bg-[#b0ef26] hover:bg-[#9ac91e] text-black font-bold py-2 px-4 rounded">{loading ? 'Asignando...' : 'Guardar Asignación'}</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const ProjectManagementModal = ({ project, onClose, onUpdate, user, userData, userRole }) => {
+    const [formData, setFormData] = useState({
+        prioridad: project.prioridad || "1 - Normal",
+        fechaEntregaInterna: project.fechaEntregaInterna ? project.fechaEntregaInterna.toDate().toISOString().split('T')[0] : '',
+        notasSupervisor: project.notasSupervisor || '',
+        precioCotizacionCliente: project.precioCotizacionCliente || '',
+        costoProveedor: project.costoProveedor || '',
+        cotizacionClienteRef: project.cotizacionClienteRef || '',
+        poClienteRef: project.poClienteRef || '',
+        cotizacionProveedorRef: project.cotizacionProveedorRef || '',
+    });
+    const [loading, setLoading] = useState(false);
+    const [logEntries, setLogEntries] = useState([]);
+    const [loadingLogs, setLoadingLogs] = useState(true);
+
+    useEffect(() => {
+        setLoadingLogs(true);
+        const q = query(
+            collection(db, "bitacoras_proyectos"),
+            where("projectId", "==", project.id),
+            orderBy("fecha", "desc")
+        );
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setLogEntries(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setLoadingLogs(false);
+        });
+        return () => unsubscribe();
+    }, [project.id]);
+
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleSave = async () => {
+        setLoading(true);
+        const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
+    
+        const updatePayload = {};
+
+        if (userRole === 'supervisor') {
+            updatePayload.prioridad = formData.prioridad;
+            updatePayload.fechaEntregaInterna = formData.fechaEntregaInterna ? Timestamp.fromDate(new Date(formData.fechaEntregaInterna)) : null;
+            updatePayload.notasSupervisor = formData.notasSupervisor;
+        } else if (userRole === 'administrador') {
+            updatePayload.precioCotizacionCliente = Number(formData.precioCotizacionCliente) || 0;
+            updatePayload.costoProveedor = Number(formData.costoProveedor) || 0;
+            updatePayload.cotizacionClienteRef = formData.cotizacionClienteRef;
+            updatePayload.poClienteRef = formData.poClienteRef;
+            updatePayload.cotizacionProveedorRef = formData.cotizacionProveedorRef;
+        }
+
+        try {
+            if (Object.keys(updatePayload).length > 0) {
+                await updateDoc(projectRef, updatePayload);
+            }
+            onUpdate();
+            onClose();
+            toast.success("Proyecto actualizado correctamente.");
+        } catch (err) {
+            toast.error("Error al guardar los cambios.");
+            console.error("Error al guardar:", err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
+            <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg">
+                <h3 className="text-lg font-bold mb-4">Gestionar Proyecto: {project.npu}</h3>
+                <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                    
+                    {userRole === 'supervisor' && (
+                            <>
+                                <div>
+                                    <label className="block text-sm font-medium">Prioridad</label>
+                                    <select name="prioridad" value={formData.prioridad}onChange={handleChange}className="mt-1 block w-full p-2 border rounded-md"
+                                    >
+                                        <option value="1 - Normal">Normal</option>
+                                        <option value="2 - Alta">Alta</option>
+                                        <option value="3 - Urgente">Urgente</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium">Fecha Límite de Entrega</label>
+                                    <input type="date" name="fechaEntregaInterna" value={formData.fechaEntregaInterna} onChange={handleChange} className="mt-1 block w-full p-2 border rounded-md"/>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium">Notas del Supervisor</label>
+                                    <textarea name="notasSupervisor" value={formData.notasSupervisor} onChange={handleChange} rows="8" className="mt-1 block w-full p-2 border rounded-md"></textarea>
+                                </div>
+                            </>
+                        )}
+
+                    {userRole === 'administrador' && (
+                        <>
+                            <div className="grid grid-cols-2 gap-4">
+                                <input type="number" name="precioCotizacionCliente" value={formData.precioCotizacionCliente} onChange={handleChange} placeholder="Precio Cliente" className="px-3 py-2 border rounded-md"/>
+                                <input type="number" name="costoProveedor" value={formData.costoProveedor} onChange={handleChange} placeholder="Costo Proveedor" className="px-3 py-2 border rounded-md"/>
+                            </div>
+                            <input type="text" name="cotizacionClienteRef" value={formData.cotizacionClienteRef} onChange={handleChange} placeholder="Ref. Cotización Cliente" className="w-full px-3 py-2 border rounded-md"/>
+                            <input type="text" name="poClienteRef" value={formData.poClienteRef} onChange={handleChange} placeholder="Ref. PO Cliente" className="w-full px-3 py-2 border rounded-md"/>
+                            <input type="text" name="cotizacionProveedorRef" value={formData.cotizacionProveedorRef} onChange={handleChange} placeholder="Ref. Cotización Proveedor" className="w-full px-3 py-2 border rounded-md"/>
+                        </>
+                    )}
+
+                    <div>
+                        <label className="block text-sm font-medium mb-1">Bitácora (Solo Lectura)</label>
+                        <div className="bg-gray-50 border rounded-md p-2 h-96 overflow-y-auto space-y-2">
+                            {loadingLogs ? <p>Cargando...</p> : logEntries.length > 0 ? logEntries.map(entry => (
+                                <div key={entry.id} className="text-xs border-b pb-1">
+                                    <p className="text-gray-800 whitespace-pre-wrap">{entry.mensaje}</p>
+                                    {entry.adjuntoUrl && <a href={entry.adjuntoUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Ver adjunto</a>}
+                                    <p className="text-gray-500 mt-1 text-right">{entry.autorNombre} - {formatDate(entry.fecha)}</p>
+                                </div>
+                            )) : <p className="text-gray-500">No hay entradas.</p>}
+                        </div>
+                    </div>
+                </div>
+                <div className="flex justify-end space-x-3 mt-6">
+                    <button onClick={onClose} className="bg-gray-300 hover:bg-gray-400 font-bold py-2 px-4 rounded">Cancelar</button>
+                    <button onClick={handleSave} disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">{loading ? 'Guardando...' : 'Guardar Cambios'}</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
 // componente para filtrado avanzado, para cambiar la busqueda simple
+/*
 const ProjectFilters = ({ projects, techniciansMap, onFilterChange }) => {
     const clients = [...new Set(projects.map(p => p.clienteNombre))].sort();
     const technicianList = Object.entries(techniciansMap || {}).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
@@ -305,7 +543,6 @@ const ProjectFilters = ({ projects, techniciansMap, onFilterChange }) => {
         <div className="bg-gray-50 p-4 rounded-lg mb-6 border flex flex-wrap items-center gap-x-6 gap-y-4">
             <span className="font-semibold text-gray-700">Filtrar por:</span>
             
-            {/* Filtro por NPU */}
             <div>
                 <label htmlFor="npu-filter" className="text-sm font-medium text-gray-600 mr-2">NPU:</label>
                 <input
@@ -317,7 +554,6 @@ const ProjectFilters = ({ projects, techniciansMap, onFilterChange }) => {
                 />
             </div>
 
-            {/* Filtro por Cliente */}
             <div>
                 <label htmlFor="client-filter" className="text-sm font-medium text-gray-600 mr-2">Cliente:</label>
                 <select id="client-filter" onChange={(e) => handleFilter('cliente', e.target.value)} className="border-gray-300 rounded-md p-2 text-sm">
@@ -326,7 +562,6 @@ const ProjectFilters = ({ projects, techniciansMap, onFilterChange }) => {
                 </select>
             </div>
 
-            {/* Filtro por Técnico */}
             <div>
                 <label htmlFor="tech-filter" className="text-sm font-medium text-gray-600 mr-2">Técnico:</label>
                 <select id="tech-filter" onChange={(e) => handleFilter('tecnico', e.target.value)} className="border-gray-300 rounded-md p-2 text-sm">
@@ -335,7 +570,6 @@ const ProjectFilters = ({ projects, techniciansMap, onFilterChange }) => {
                 </select>
             </div>
 
-             {/* Filtro por Estado de Entrega */}
              <div>
                 <label htmlFor="status-filter" className="text-sm font-medium text-gray-600 mr-2">Estado:</label>
                 <select id="status-filter" onChange={(e) => handleFilter('estadoEntrega', e.target.value)} className="border-gray-300 rounded-md p-2 text-sm">
@@ -349,6 +583,7 @@ const ProjectFilters = ({ projects, techniciansMap, onFilterChange }) => {
         </div>
     );
 };
+*/
 
 // modal para acciones que necesitan una razón por escrito (ej. rechazar un proyecto).
 const ActionWithReasonModal = ({ title, message, onConfirm, onCancel, confirmText = "Confirmar", cancelText = "Cancelar", confirmColor = "bg-orange-600" }) => {
@@ -368,49 +603,6 @@ const ActionWithReasonModal = ({ title, message, onConfirm, onCancel, confirmTex
                 <div className="flex justify-end space-x-3 mt-6">
                     <button onClick={onCancel} className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">{cancelText}</button>
                     <button onClick={() => onConfirm(reason)} className={`${confirmColor} hover:opacity-90 text-white font-bold py-2 px-4 rounded`}>{confirmText}</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const SupervisorNoteModal = ({ project, onClose, onUpdate }) => {
-    const [note, setNote] = useState(project.notasSupervisor || '');
-    const [loading, setLoading] = useState(false);
-
-    const handleSave = async () => {
-        setLoading(true);
-        const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
-        try {
-            await updateDoc(projectRef, {
-                notasSupervisor: note,
-            });
-            onUpdate();
-            onClose();
-        } catch (err) {
-            console.error("Error al guardar la nota:", err);
-            alert("No se pudo guardar la nota.");
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
-            <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg">
-                <h3 className="text-lg font-bold mb-4">Notas del Supervisor: {project.npu}</h3>
-                <textarea
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    placeholder="Escribe tus notas personales aquí..."
-                    rows="5"
-                    className="w-full p-2 border rounded-md"
-                ></textarea>
-                <div className="flex justify-end space-x-3 mt-6">
-                    <button onClick={onClose} className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">Cancelar</button>
-                    <button onClick={handleSave} disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
-                        {loading ? 'Guardando...' : 'Guardar Nota'}
-                    </button>
                 </div>
             </div>
         </div>
@@ -776,31 +968,20 @@ const DataManagement = ({ collectionName, title, fields, placeholderTexts }) => 
 
 // -- DASHBOARDS POR ROL --
 
-// El dashboard del Administrador. Contiene las pestañas para gestionar
-// proyectos, usuarios, servicios, proveedores y la revisión final.
+// El dashboard del Administrador. Contiene las pestañas para gestionar proyectos, usuarios, servicios, proveedores y la revisión final.
 const AdminDashboard = () => {
     const [view, setView] = useState('projects');
     const [projects, setProjects] = useState([]);
-    const [reviewProjects, setReviewProjects] = useState([]);
     const [loading, setLoading] = useState(true);
 
     const refreshData = () => {
         setLoading(true);
         const qProjects = query(collection(db, PROYECTOS_COLLECTION), orderBy("fechaApertura", "desc"));
-        const unsubscribeProjects = onSnapshot(qProjects, (querySnapshot) => {
-            setProjects(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-            setLoading(false); 
+        const unsubscribe = onSnapshot(qProjects, (snapshot) => {
+            setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setLoading(false);
         });
-        
-        const qReview = query(collection(db, PROYECTOS_COLLECTION), where("estado", "==", "En Revisión Final"));
-        const unsubscribeReview = onSnapshot(qReview, (querySnapshot) => {
-            setReviewProjects(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        });
-    
-        return () => {
-            unsubscribeProjects();
-            unsubscribeReview();
-        };
+        return unsubscribe;
     };
 
     useEffect(() => {
@@ -813,10 +994,6 @@ const AdminDashboard = () => {
             <div className="mb-6 border-b border-gray-200">
                 <nav className="-mb-px flex space-x-8" aria-label="Tabs">
                     <button onClick={() => setView('projects')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'projects' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>Proyectos</button>
-                    <button onClick={() => setView('review')} className={`relative whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'review' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>
-                        Revisión Final
-                        {reviewProjects.length > 0 && <span className="absolute top-2 -right-4 ml-2 px-2 py-0.5 text-xs font-bold text-white bg-red-500 rounded-full">{reviewProjects.length}</span>}
-                    </button>
                     <button onClick={() => setView('users')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'users' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>Usuarios</button>
                     <button onClick={() => setView('services')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'services' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>Servicios</button>
                     <button onClick={() => setView('providers')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'providers' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>Proveedores</button>
@@ -831,13 +1008,6 @@ const AdminDashboard = () => {
                     <h2 className="text-2xl font-bold text-gray-800 my-6">Todos los Proyectos</h2>
                     {loading ? <p>Cargando tabla...</p> : <ProjectsTable projects={projects} onUpdateProject={refreshData} userRole="administrador" />}
                 </>
-            )}
-
-            {view === 'review' && (
-                <div>
-                    <h2 className="text-2xl font-bold text-gray-800 my-6">Proyectos Pendientes de Aprobación Final</h2>
-                    {loading ? <p>Cargando...</p> : reviewProjects.length === 0 ? <p>No hay proyectos en revisión.</p> : <ReviewProjectsTable projects={reviewProjects} onUpdateProject={refreshData} />}
-                </div>
             )}
 
             {view === 'services' && <DataManagement collectionName="servicios" title="Servicios" fields={['nombre', 'servicioIdNumerico', 'dependencia']} placeholderTexts={['Nombre del Servicio', 'ID Numérico (ej: 0001)', 'Dependencia']} />}
@@ -899,7 +1069,7 @@ const NewProjectForm = ({ onProjectAdded }) => {
         cotizacionClienteRef: '',
         poClienteRef: '',
         cotizacionProveedorRef: '',
-        cantidadUnidades: 1, // se deja por defecto en 1 para los servicios que van a ser variables
+        cantidadUnidades: 1,
     });
 
     const [selectedService, setSelectedService] = useState(null);
@@ -1080,7 +1250,7 @@ const NewProjectForm = ({ onProjectAdded }) => {
                     <div className="space-y-4">
                         <h4 className="font-semibold text-gray-700">Información del Proveedor</h4>
                         <input type="number" name="costoProveedor" value={formData.costoProveedor} onChange={handleChange} placeholder="Costo (con IVA)" disabled={isInternalProvider} className="mt-1 block w-full px-3 py-2 border rounded-md disabled:bg-gray-100"/>
-                        <input type="text" name="cotizacionProveedorRef" value={formData.cotizacionProveedorRef} onChange={handleChange} placeholder="Nº o Ref. de Cotización Proveedor" className="mt-1 block w-full px-3 py-2 border rounded-md"/>
+                        <input type="text" name="cotizacionProveedorRef" value={formData.cotizacionProveedorRef} onChange={handleChange} placeholder="Nº o Ref. de Cotización Proveedor" disabled={isInternalProvider} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
                     </div>
                 </div>
 
@@ -1093,16 +1263,15 @@ const NewProjectForm = ({ onProjectAdded }) => {
     );
 };
 
-const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, user, userData, selectedRole }) => {
-    const [modalProject, setModalProject] = useState(null);
-    const [modalType, setModalType] = useState('');
-    const [searchTerm, setSearchTerm] = useState('');
+const ProjectsTable = ({projects, onUpdateProject, userRole, supervisorView, onManageClick, onAssignClick, onLogClick, user, userData, selectedRole}) => {
+    const [expandedRowId, setExpandedRowId] = useState(null);
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
     const [techniciansMap, setTechniciansMap] = useState({});
     const [invoicesMap, setInvoicesMap] = useState({});
     const [confirmingAction, setConfirmingAction] = useState(null);
-    const [noteModalProject, setNoteModalProject] = useState(null);
+    
+    const [searchTerm, setSearchTerm] = useState('');
 
     useEffect(() => {
         const fetchExtraData = () => {
@@ -1135,169 +1304,18 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
         return () => unsubscribe();
     }, []);
 
-    const ManageProjectModal = ({ project, onClose, onFinalized }) => {
-        const [loading, setLoading] = useState(false);
-        const [error, setError] = useState('');
-        const [formData, setFormData] = useState({
-            precioCotizacionCliente: project.precioCotizacionCliente || '',
-            costoProveedor: project.costoProveedor || '',
-            cotizacionClienteRef: project.cotizacionClienteRef || '',
-            poClienteRef: project.poClienteRef || '',
-            cotizacionProveedorRef: project.cotizacionProveedorRef || '',
-        });
-
-        const handleChange = (e) => {
-            const { name, value } = e.target;
-            setFormData(prev => ({ ...prev, [name]: value }));
-        };
-
-        const handleSave = async () => {
-            setLoading(true);
-            setError('');
-            try {
-                const updatePayload = {
-                    precioCotizacionCliente: Number(formData.precioCotizacionCliente) || 0,
-                    costoProveedor: Number(formData.costoProveedor) || 0,
-                    cotizacionClienteRef: formData.cotizacionClienteRef,
-                    poClienteRef: formData.poClienteRef,
-                    cotizacionProveedorRef: formData.cotizacionProveedorRef,
-                };
-
-                if (formData.poClienteRef && project.estado === 'Cotización') {
-                    updatePayload.estado = 'Activo';
-                    updatePayload.estadoCliente = 'Activo';
-                }
-
-                await updateDoc(doc(db, PROYECTOS_COLLECTION, project.id), updatePayload);
-                
-                onFinalized();
-                onClose();
-            } catch (err) {
-                setError("Error al guardar los cambios.");
-                setLoading(false);
-            }
-        };
-
-        return (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
-                <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg">
-                    <h3 className="text-lg font-bold mb-4">Gestionar Proyecto: {project.npu}</h3>
-                    <div className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                            <input type="number" name="precioCotizacionCliente" value={formData.precioCotizacionCliente} onChange={handleChange} placeholder="Precio Cliente" className="px-3 py-2 border rounded-md"/>
-                            <input type="number" name="costoProveedor" value={formData.costoProveedor} onChange={handleChange} placeholder="Costo Proveedor" className="px-3 py-2 border rounded-md"/>
-                        </div>
-                        <input type="text" name="cotizacionClienteRef" value={formData.cotizacionClienteRef} onChange={handleChange} placeholder="Ref. Cotización Cliente" className="w-full px-3 py-2 border rounded-md"/>
-                        <input type="text" name="poClienteRef" value={formData.poClienteRef} onChange={handleChange} placeholder="Ref. PO Cliente" className="w-full px-3 py-2 border rounded-md"/>
-                        <input type="text" name="cotizacionProveedorRef" value={formData.cotizacionProveedorRef} onChange={handleChange} placeholder="Ref. Cotización Proveedor" className="w-full px-3 py-2 border rounded-md"/>
-                    </div>
-                    
-                    <Alert message={error} type="error" onClose={() => setError('')} />
-                    <div className="mt-6 flex justify-end space-x-3">
-                        <button onClick={onClose} disabled={loading} className="bg-gray-300 hover:bg-gray-400 font-bold py-2 px-4 rounded">Cancelar</button>
-                        <button onClick={handleSave} disabled={loading} className="bg-[#b0ef26] hover:bg-[#9ac91e] text-black font-bold py-2 px-4 rounded">{loading ? 'Guardando...' : 'Guardar Cambios'}</button>
-                    </div>
-                </div>
-            </div>
-        );
-    };
+    const handleToggleRow = (projectId) => {
+        setExpandedRowId(prevId => (prevId === projectId ? null : projectId));
+    };  
     
-    const AssignProjectModal = ({ project, onClose, onFinalized }) => {
-        const [technicians, setTechnicians] = useState([]);
-        const [selectedTechnicianId, setSelectedTechnicianId] = useState(
-            (project.asignadoTecnicosIds && project.asignadoTecnicosIds[0]) || ''
-        );
-        const [deliveryDate, setDeliveryDate] = useState(project.fechaEntregaInterna ? project.fechaEntregaInterna.toDate().toISOString().split('T')[0] : '');
-        const [loading, setLoading] = useState(false);
+    const filteredProjects = userRole === 'administrador'
+    ? projects.filter(p => (p.npu?.toLowerCase().includes(searchTerm.toLowerCase())) || (p.clienteNombre?.toLowerCase().includes(searchTerm.toLowerCase())) || (p.servicioNombre?.toLowerCase().includes(searchTerm.toLowerCase())))
+    : projects;
 
-        useEffect(() => {
-            const fetchTechnicians = async () => {
-                const q1 = query(collection(db, "usuarios"), where("rol", "==", "tecnico"));
-                const q2 = query(collection(db, "usuarios"), where("roles", "array-contains", "tecnico"));
-
-                const [snapshot1, snapshot2] = await Promise.all([getDocs(q1), getDocs(q2)]);
-
-                const techMap = new Map();
-                snapshot1.forEach((doc) => techMap.set(doc.id, { id: doc.id, ...doc.data() }));
-                snapshot2.forEach((doc) => techMap.set(doc.id, { id: doc.id, ...doc.data() }));
-                
-                setTechnicians(Array.from(techMap.values()));
-            };
-            fetchTechnicians();
-        }, []);
-
-        const handleSave = async () => {
-            if (!selectedTechnicianId) {
-                alert("Debes seleccionar un técnico.");
-                return;
-            }
-            setLoading(true);
-            const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
-            
-            const tecnicosStatus = {};
-            tecnicosStatus[selectedTechnicianId] = project.tecnicosStatus?.[selectedTechnicianId] || "No Visto";
-
-            await updateDoc(projectRef, {
-                asignadoTecnicosIds: [selectedTechnicianId],
-                tecnicosStatus: tecnicosStatus,
-                fechaAsignacionTecnico: Timestamp.now(),
-                fechaEntregaInterna: deliveryDate ? Timestamp.fromDate(new Date(deliveryDate)) : null
-            });
-            setLoading(false);
-            onFinalized();
-            onClose();
-        };
-
-        return (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
-                <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
-                    <h3 className="text-lg font-bold mb-4">Asignar Proyecto: {project.npu}</h3>
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Técnico Asignado</label>
-                            <div className="mt-2 max-h-48 overflow-y-auto border rounded-md p-2">
-                                {technicians.map(tech => (
-                                    <div key={tech.id} className="flex items-center">
-                                        <input
-                                            type="radio"
-                                            name="technician"
-                                            id={tech.id}
-                                            value={tech.id}
-                                            checked={selectedTechnicianId === tech.id}
-                                            onChange={(e) => setSelectedTechnicianId(e.target.value)}
-                                            className="h-4 w-4 border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                                        />
-                                        <label htmlFor={tech.id} className="ml-3 text-sm text-gray-700">{tech.nombreCompleto}</label>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Fecha Límite de Entrega (Interna)</label>
-                            <input type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
-                        </div>
-                    </div>
-                    <div className="mt-6 flex justify-end space-x-3">
-                        <button onClick={onClose} disabled={loading} className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">Cancelar</button>
-                        <button onClick={handleSave} disabled={loading} className="bg-[#b0ef26] hover:bg-[#9ac91e] text-black font-bold py-2 px-4 rounded">{loading ? 'Asignando...' : 'Guardar Asignación'}</button>
-                    </div>
-                </div>
-            </div>
-        );
-    };
-
-    const filteredProjects = projects.filter(p => (p.npu?.toLowerCase().includes(searchTerm.toLowerCase())) || (p.clienteNombre?.toLowerCase().includes(searchTerm.toLowerCase())) || (p.servicioNombre?.toLowerCase().includes(searchTerm.toLowerCase())));
     const currentItems = filteredProjects.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
     const totalPages = Math.ceil(filteredProjects.length / itemsPerPage);
     const paginate = (pageNumber) => setCurrentPage(pageNumber);
-    const formatDate = (timestamp) => {
-        if (!timestamp) return '---';
-        const date = timestamp.toDate();
-        const userTimezoneOffset = date.getTimezoneOffset() * 60000;
-        const adjustedDate = new Date(date.getTime() + userTimezoneOffset);
-        return adjustedDate.toLocaleDateString('es-MX', { year: 'numeric', month: '2-digit', day: '2-digit' });
-    };
-
+    
     const handleActivateProject = async (projectId) => {
         await updateDoc(doc(db, PROYECTOS_COLLECTION, projectId), { estado: 'Activo', estadoCliente: 'Activo' });
     };
@@ -1319,7 +1337,7 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
 
     return (
         <>
-            {userRole !== 'supervisor' && (
+            {userRole === 'administrador' && (
                 <div className="mb-4 flex flex-col md:flex-row justify-between items-center">
                     <input
                         type="text"
@@ -1338,7 +1356,7 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
                     </div>
                 </div>
             )}
-
+            
             <div className="overflow-x-auto bg-white rounded-lg shadow">
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
@@ -1348,53 +1366,47 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notas</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
                             </tr>
                         )}
 
-                        {userRole === 'supervisor' && supervisorView === 'assigned' && (
+                        {userRole === 'supervisor' && supervisorView === 'techDetail' && (
                             <tr>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado Entrega</th>                                
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Info Ecotech</th> 
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Asignación</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Límite</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notas</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Técnico</th>                         
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium uppercase">Estado</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium uppercase">Prioridad</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium uppercase">Horas (Reg/Est)</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium uppercase">Servicio</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium uppercase">Ver Más</th>
                             </tr>
                         )}
 
                         {userRole === 'administrador' && (
-                            <tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Apertura</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Proveedor</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nº Proy. Lab.</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Comentarios</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">PO Prov.</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Precio</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Costo</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ref. Cliente</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ref. Proveedor</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fact. Cliente</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fact. Proveedor</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
-                            </tr>
-                        )}
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Apertura</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Proveedor</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nº Proy. Lab.</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Comentarios</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">PO Prov.</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Precio</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Costo</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ref. Cliente</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ref. Proveedor</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fact. Cliente</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fact. Proveedor</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                                </tr>
+                            )}
                     </thead>
 
-                        <tbody className="bg-white divide-y divide-gray-200">
+                    <tbody className="bg-white divide-y divide-gray-200">
                         {currentItems.map(project => {
-
+                            const isExpanded = expandedRowId === project.id;
                             let deliveryStatus = 'A Tiempo';
-                            if (userRole === 'supervisor' && supervisorView === 'assigned') {
+                            if (userRole === 'supervisor') {
                                 const today = new Date(); today.setHours(0,0,0,0);
                                 const dueDate = project.fechaEntregaInterna?.toDate();
                                 if (!dueDate) {
@@ -1402,111 +1414,121 @@ const ProjectsTable = ({ projects, onUpdateProject, userRole, supervisorView, us
                                 } else {
                                     dueDate.setHours(0,0,0,0);
                                     if (dueDate < today) deliveryStatus = 'Atrasado';
+                                    else if ((dueDate - today) / (1000 * 60 * 60 * 24) <= 3) deliveryStatus = 'Por Vencer';
                                 }
                             }
                             const isEcotech = project.proveedorNombre?.toLowerCase().includes('ecotech');
 
                             return (
-                                <tr key={project.id}>
-                                    {userRole === 'supervisor' && supervisorView === 'new' && (
-                                        <>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm">{formatDate(project.fechaApertura)}</td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm font-medium">{project.npu}</td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{project.clienteNombre}</td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{project.servicioNombre}</td>
-                                            <td className="px-4 py-2 text-sm text-gray-600">
-                                                <button onClick={() => setNoteModalProject(project)} className="hover:text-blue-600 text-left w-full">
-                                                    <p className="w-32 truncate" title={project.notasSupervisor || "Añadir nota"}>{project.notasSupervisor || <span className="text-gray-400 italic">Añadir nota...</span>}</p>
-                                                </button>
-                                            </td>
-                                            <td className="px-4 py-2"><button onClick={() => { setModalProject(project); setModalType('assign'); }} className="text-indigo-600">Asignar</button></td>
-                                        </>
-                                    )}
-
-                                    {userRole === 'supervisor' && supervisorView === 'assigned' && (
-                                        <>
-                                            <td className="px-4 py-2">
-                                                <div className="flex items-center space-x-4">
-                                                    <button onClick={() => { setModalProject(project); setModalType('assign'); }} className="text-indigo-600">Reasignar</button>
-                                                    <button onClick={() => { setModalProject(project); setModalType('log'); }} className="text-gray-600">Bitácora</button>
-                                                </div>
-                                            </td>                                        
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm"><StatusBadge status={deliveryStatus} /></td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{project.clienteNombre}</td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{project.servicioNombre}</td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm">
-                                                {isEcotech ? (
-                                                    <div className="text-xs">
-                                                        <p><strong>Nº Proy:</strong> {project.datosEcotech?.numeroProyecto || 'N/A'}</p>
-                                                        <p><strong>Puntos:</strong> {project.datosEcotech?.puntosDeTrabajo || 'N/A'}</p>
-                                                        <p><strong>Estatus:</strong> {project.datosEcotech?.estatus || 'N/A'}</p>
+                                <React.Fragment key={project.id}>
+                                    <tr className={isExpanded ? 'bg-blue-50' : ''}>
+                                        {userRole === 'administrador' && (
+                                                <>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{formatDate(project.fechaApertura)}</td>
+                                                    <td className="px-4 py-2 whitespace-nowrap text-sm font-medium">{project.npu}</td>
+                                                    <td className="px-4 py-2 whitespace-nowrap text-sm">{project.clienteNombre}</td>
+                                                    <td className="px-4 py-2 whitespace-nowrap text-sm">{project.servicioNombre}</td>
+                                                    <td className="px-4 py-2 whitespace-nowrap text-sm">{project.proveedorNombre}</td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{project.datosEcotech?.numeroProyecto || '---'}</td>
+                                                    <td className="px-6 py-4 text-sm text-gray-500" title={project.comentariosApertura}>
+                                                        <p className="w-32 truncate">{project.comentariosApertura || '---'}</p>
+                                                    </td>
+                                                    <td className="px-4 py-2 whitespace-nowrap text-sm">{project.poProveedor}</td>
+                                                    <td className="px-4 py-2 whitespace-nowrap text-sm text-green-600">${(project.precioCotizacionCliente || 0).toFixed(2)}</td>
+                                                    <td className="px-4 py-2 whitespace-nowrap text-sm text-red-600">${(project.costoProveedor || 0).toFixed(2)}</td>
+                                                    <td className="px-4 py-2 text-xs">
+                                                        <p><strong>Cot:</strong> {project.cotizacionClienteRef || 'N/A'}</p>
+                                                        <p><strong>PO:</strong> {project.poClienteRef || 'N/A'}</p>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-xs">
+                                                        <p><strong>Cot:</strong> {project.cotizacionProveedorRef || 'N/A'}</p>
+                                                    </td>
+                                                    <td className="px-4 py-2 whitespace-nowrap text-sm">{invoicesMap[project.facturaClienteId] || '---'}</td>
+                                                    <td className="px-4 py-2 whitespace-nowrap text-sm">{invoicesMap[project.facturaProveedorId] || (project.proveedorNombre?.toLowerCase().trim() === "ecologia y asesoria ambiental" ? 'N/A' : '---')}</td>
+                                                    <td className="px-4 py-2"><span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${project.estado === 'Activo' ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-800'}`}>{project.estado}</span></td>
+                                                    <td className="px-4 py-2">
+                                                        <div className="flex items-center space-x-4">
+                                                            {project.estado === 'Cotización' && <button onClick={() => handleActivateProject(project.id)} className="text-green-600">Activar</button>}
+                                                            <button onClick={() => onManageClick(project)} className="text-indigo-600">Gestionar</button>
+                                                            {project.estado !== 'Terminado' && project.estado !== 'Archivado' && <button onClick={() => promptDeleteProject(project.id, project.npu)} className="text-red-600">Borrar</button>}
+                                                        </div>
+                                                    </td>
+                                                </>
+                                            )}
+                                        </tr>
+                                        {userRole === 'supervisor' && supervisorView === 'new' && (
+                                            <>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm">{formatDate(project.fechaApertura)}</td>
+                                                <td className="px-4 py-2 whitespace-nowrap text-sm font-medium">{project.npu}</td>
+                                                <td className="px-4 py-2 whitespace-nowrap text-sm">{project.clienteNombre}</td>
+                                                <td className="px-4 py-2 whitespace-nowrap text-sm">{project.servicioNombre}</td>
+                                                <td className="px-4 py-2">
+                                                    <button onClick={() => onAssignClick(project)} className="text-indigo-600 font-medium">Asignar</button>
+                                                </td>
+                                            </>    
+                                        )}
+                                        {userRole === 'supervisor' && supervisorView === 'techDetail' && (
+                                            <>
+                                                <td className="px-4 py-3"><StatusBadge status={deliveryStatus} /></td>
+                                                <td className="px-4 py-3 text-sm">{project.prioridad || '1 - Normal'}</td>
+                                                <td className="px-4 py-3 text-sm">
+                                                    <span className="font-semibold">{(project.horasRegistradas || 0).toFixed(1)}h</span> / 
+                                                    <span className="text-gray-600">{(project.horasEstimadas || 0).toFixed(1)}h</span>
+                                                </td>
+                                                <td className="px-4 py-3 text-sm">{project.servicioNombre}</td>
+                                                <td className="px-4 py-3">
+                                                    <button onClick={() => handleToggleRow(project.id)} className="text-indigo-600 font-medium">
+                                                        {expandedRowId === project.id ? 'Ocultar' : 'Detalles...'}
+                                                    </button>
+                                                </td>
+                                            </>
+                                        )}
+                                        {isExpanded && (
+                                            <tr className="bg-gray-50 border-b-2 border-blue-200">
+                                                <td colSpan="5" className="p-4">
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                                                    <div><p className="font-semibold">Cliente:</p><p>{project.clienteNombre}</p></div>
+                                                    <div><p className="font-semibold">Fecha Límite (Supervisor):</p><p>{formatDate(project.fechaEntregaInterna)}</p></div>
+                                                    <div>
+                                                        <p className="font-semibold">Estado Detallado:</p>
+                                                        {project.fechaFinTecnicoReal ? (
+                                                            <p className="text-purple-800">Técnico finalizó el {formatDate(project.fechaFinTecnicoReal)}. En espera de proveedor.</p>
+                                                        ) : (
+                                                            <p className="text-gray-600">El técnico está trabajando en el proyecto.</p>
+                                                        )}
                                                     </div>
-                                                ) : 'N/A'}
-                                            </td>                                            
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{formatDate(project.fechaAsignacionTecnico)}</td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{formatDate(project.fechaEntregaInterna)}</td>
-                                            <td className="px-4 py-2 text-sm text-gray-600">
-                                                <button onClick={() => setNoteModalProject(project)} className="hover:text-blue-600 text-left w-full">
-                                                    <p className="w-32 truncate" title={project.notasSupervisor || "Añadir nota"}>{project.notasSupervisor || <span className="text-gray-400 italic">Añadir nota...</span>}</p>
-                                                </button>
-                                            </td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{techniciansMap[project.asignadoTecnicosIds?.[0]] || '---'}</td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm font-medium">{project.npu}</td>
-                                        </>
-                                    )}
-
-                                    {userRole === 'administrador' && (
-                                        <>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm">{formatDate(project.fechaApertura)}</td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm font-medium">{project.npu}</td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{project.clienteNombre}</td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{project.servicioNombre}</td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{project.proveedorNombre}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm">{project.datosEcotech?.numeroProyecto || '---'}</td>
-                                            <td className="px-6 py-4 text-sm text-gray-500" title={project.comentariosApertura}>
-                                                <p className="w-32 truncate">{project.comentariosApertura || '---'}</p>
-                                            </td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{project.poProveedor}</td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm text-green-600">${(project.precioCotizacionCliente || 0).toFixed(2)}</td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm text-red-600">${(project.costoProveedor || 0).toFixed(2)}</td>
-                                            <td className="px-4 py-2 text-xs">
-                                                <p><strong>Cot:</strong> {project.cotizacionClienteRef || 'N/A'}</p>
-                                                <p><strong>PO:</strong> {project.poClienteRef || 'N/A'}</p>
-                                            </td>
-                                            <td className="px-4 py-2 text-xs">
-                                                <p><strong>Cot:</strong> {project.cotizacionProveedorRef || 'N/A'}</p>
-                                            </td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{invoicesMap[project.facturaClienteId] || '---'}</td>
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm">{invoicesMap[project.facturaProveedorId] || (project.proveedorNombre?.toLowerCase().trim() === "ecologia y asesoria ambiental" ? 'N/A' : '---')}</td>
-                                            <td className="px-4 py-2"><span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${project.estado === 'Activo' ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-800'}`}>{project.estado}</span></td>
-                                            <td className="px-4 py-2">
-                                                <div className="flex items-center space-x-4">
-                                                    {project.estado === 'Cotización' && <button onClick={() => handleActivateProject(project.id)} className="text-green-600">Activar</button>}
-                                                    <button onClick={() => { setModalProject(project); setModalType('manage'); }} className="text-indigo-600">Gestionar</button>
-                                                    {project.estado !== 'Terminado' && project.estado !== 'Archivado' && <button onClick={() => promptDeleteProject(project.id, project.npu)} className="text-red-600">Borrar</button>}
-                                                </div>
-                                            </td>
-                                        </>
-                                    )}
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
-            </div>
-
-            <div className="mt-4 flex justify-between items-center">
-                <span className="text-sm text-gray-700">Página {currentPage} de {totalPages}</span>
-                <div>
-                    <button onClick={() => paginate(currentPage - 1)} disabled={currentPage === 1} className="px-3 py-1 border rounded-md bg-white mr-2 disabled:opacity-50">Anterior</button>
-                    <button onClick={() => paginate(currentPage + 1)} disabled={currentPage === totalPages || totalPages === 0} className="px-3 py-1 border rounded-md bg-white disabled:opacity-50">Siguiente</button>
+                                                    <div className="col-span-full"><p className="font-semibold">Notas del Supervisor:</p><p className="text-gray-600 whitespace-pre-wrap">{project.notasSupervisor || 'No hay notas.'}</p></div>
+                                                        {isEcotech && (
+                                                            <div className="col-span-3 border-t pt-2 mt-2">
+                                                                <p className="font-semibold text-gray-800">Info Ecotech:</p>
+                                                                <p><strong>Nº Proy:</strong> {project.datosEcotech?.numeroProyecto || 'N/A'}, <strong>Puntos:</strong> {project.datosEcotech?.puntosDeTrabajo || 'N/A'}, <strong>Estatus:</strong> {project.datosEcotech?.estatus || 'N/A'}</p>
+                                                            </div>
+                                                        )}
+                                                        <div className="col-span-3 text-right border-t pt-3 mt-2">
+                                                            <button onClick={() => onManageClick(project)} className="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700">
+                                                                Gestionar
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </React.Fragment>
+                                );
+                            })}
+                        </tbody>
+                    </table>
                 </div>
-            </div>
-            {modalProject && modalType === 'assign' && <AssignProjectModal project={modalProject} onClose={() => setModalProject(null)} onFinalized={onUpdateProject} />}
-            {modalProject && modalType === 'manage' && <ManageProjectModal project={modalProject} onClose={() => setModalProject(null)} onFinalized={onUpdateProject} />}
-            {modalProject && modalType === 'log' && <ProjectLogModal project={modalProject} user={user} userData={userData} onClose={() => setModalProject(null)} selectedRole={selectedRole} />}
-            {noteModalProject && <SupervisorNoteModal project={noteModalProject} onClose={() => setNoteModalProject(null)} onUpdate={onUpdateProject} />}
-            {confirmingAction && <ConfirmationModal title={confirmingAction.title} message={confirmingAction.message} onConfirm={confirmingAction.onConfirm} onCancel={() => setConfirmingAction(null)} confirmText={confirmingAction.confirmText} confirmColor={confirmingAction.confirmColor} />}
+
+                <div className="mt-4 flex justify-between items-center">
+                    <span className="text-sm text-gray-700">Página {currentPage} de {totalPages}</span>
+                    <div>
+                        <button onClick={() => paginate(currentPage - 1)} disabled={currentPage === 1} className="px-3 py-1 border rounded-md bg-white mr-2 disabled:opacity-50">Anterior</button>
+                        <button onClick={() => paginate(currentPage + 1)} disabled={currentPage === totalPages || totalPages === 0} className="px-3 py-1 border rounded-md bg-white disabled:opacity-50">Siguiente</button>
+                    </div>
+                </div>
+                
+                {confirmingAction && <ConfirmationModal {...confirmingAction} onCancel={() => setConfirmingAction(null)} />}
         </>
     );
 };
@@ -1595,30 +1617,30 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                         <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Documentos Finales</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Documentos Finales</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                         {projects.map(project => (
                              <tr key={project.id}>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.npu}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.servicioNombre}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                    <div className="flex flex-col space-y-1">
-                                        {project.urlHeyzine && <a href={project.urlHeyzine} target="_blank" rel="noopener noreferrer" className="text-blue-600">Ver Proyecto (Heyzine)</a>}
-                                        {project.urlNotaPdf1 && <a href={project.urlNotaPdf1} target="_blank" rel="noopener noreferrer" className="text-red-600">Ver Nota 1</a>}
-                                        {project.urlNotaPdf2 && <a href={project.urlNotaPdf2} target="_blank" rel="noopener noreferrer" className="text-red-600">Ver Nota 2</a>}
-                                    </div>
-                                </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                     <div className="flex space-x-4">
                                         <button onClick={() => promptApprove(project)} className="text-green-600 hover:text-green-900">Aprobar</button>
                                         <button onClick={() => promptReject(project.id)} className="text-orange-600 hover:text-orange-900">Rechazar</button>
                                     </div>
                                 </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                    <div className="flex flex-col space-y-1">
+                                        {project.urlHeyzine && <a href={project.urlHeyzine} target="_blank" rel="noopener noreferrer" className="text-blue-600">Ver Proyecto (Heyzine)</a>}
+                                        {project.fase1_urlNotaEntregaFirmada && <a href={project.fase1_urlNotaEntregaFirmada} target="_blank" rel="noopener noreferrer" className="text-red-600">Ver Nota 1 (Firmada)</a>}
+                                        {project.fase2_urlNotaEntregaFirmada && <a href={project.fase2_urlNotaEntregaFirmada} target="_blank" rel="noopener noreferrer" className="text-red-600">Ver Nota 2 (Firmada)</a>}
+                                    </div>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.servicioNombre}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.npu}</td>
                             </tr>
                         ))}
                     </tbody>
@@ -2012,14 +2034,6 @@ const OperationalTrackingTable = ({ projects, techniciansMap }) => {
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
 
-    const formatDate = (timestamp) => {
-        if (!timestamp) return '---';
-        const date = timestamp.toDate();
-        const userTimezoneOffset = date.getTimezoneOffset() * 60000;
-        const adjustedDate = new Date(date.getTime() + userTimezoneOffset);
-        return adjustedDate.toLocaleDateString('es-MX', { year: 'numeric', month: '2-digit', day: '2-digit' });
-    };
-    
     const filteredProjects = projects.filter(p =>
         (p.npu && p.npu.toLowerCase().includes(searchTerm.toLowerCase())) ||
         (p.clienteNombre && p.clienteNombre.toLowerCase().includes(searchTerm.toLowerCase())) ||
@@ -2572,6 +2586,7 @@ const DirectivoDashboard = () => {
     );
 };
 
+//panel para el manejo de la informacion de los proyectos de ecotech
 const EcotechDashboard = () => {
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -2579,20 +2594,16 @@ const EcotechDashboard = () => {
     const fetchProjects = () => {
         setLoading(true);
         const q = query(
-            collection(db, PROYECTOS_COLLECTION), 
+            collection(db, PROYECTOS_COLLECTION),
             where("proveedorNombre", "==", "Ecotech Ingenieria del Medio Ambiente"),
-            where("estado", "!=", "Terminado") 
+            where("estado", "==", "Activo")
         );
         
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
-            const projectsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setProjects(projectsData);
+            setProjects(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
             setLoading(false);
         }, (error) => {
             console.error("Error fetching projects for Ecotech: ", error);
-            if (error.code === 'failed-precondition') {
-                alert("Se requiere una configuración adicional en la base de datos. Por favor, revise la consola del navegador (F12) para encontrar un enlace y crear el índice necesario.");
-            }
             setLoading(false);
         });
         
@@ -2610,7 +2621,7 @@ const EcotechDashboard = () => {
             {loading ? (
                 <p>Cargando proyectos de Ecotech...</p>
             ) : projects.length === 0 ? (
-                 <p className="text-center text-gray-500 mt-8">No hay proyectos de Ecotech activos.</p>
+                <p className="text-center text-gray-500 mt-8">No hay proyectos de Ecotech activos.</p>
             ) : (
                 <EcotechProjectsTable projects={projects} onUpdateProject={fetchProjects} />
             )}
@@ -2628,27 +2639,27 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         
-        if (project.estatusEcotech === 'Terminado') {
+        if (project.datosEcotech?.estatus === 'Terminado') {
             return { text: 'Terminado', class: 'bg-blue-100 text-blue-800' };
         }
 
-        if (project.fechaEnvioDigital?.toDate) {
-            const deadlineLab = addBusinessDays(project.fechaEnvioDigital.toDate(), 15);
+        if (project.datosEcotech?.fechaEnvioDigital?.toDate) {
+            const deadlineLab = addBusinessDays(project.datosEcotech?.fechaEnvioDigital.toDate(), 15);
             if (today > deadlineLab) {
                 return { text: 'Vencido Lab.', class: 'bg-red-100 text-red-800 font-bold' };
             }
-            return { text: project.estatusEcotech, class: 'bg-green-100 text-green-800' };
+            return { text: project.datosEcotech?.estatus, class: 'bg-green-100 text-green-800' };
         }
 
-        if (project.fechaMuestreo?.toDate) {
-            const deadlineInternal = addBusinessDays(project.fechaMuestreo.toDate(), 3);
+        if (project.datosEcotech?.fechaMuestreo?.toDate) {
+            const deadlineInternal = addBusinessDays(project.datosEcotech?.fechaMuestreo.toDate(), 3);
             if (today > deadlineInternal) {
                 return { text: 'Vencido Internamente', class: 'bg-orange-100 text-orange-800 font-semibold' };
             }
-            return { text: project.estatusEcotech, class: 'bg-green-100 text-green-800' };
+            return { text: project.datosEcotech?.estatus, class: 'bg-green-100 text-green-800' };
         }
 
-        return { text: project.estatusEcotech || 'Pendiente', class: 'bg-gray-100 text-gray-700' };
+        return { text: project.datosEcotech?.estatus || 'Pendiente', class: 'bg-gray-100 text-gray-700' };
     };
 
     const ManageEcotechProjectModal = ({ project, onClose, onFinalized }) => {
@@ -2657,15 +2668,20 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
         const [notes, setNotes] = useState(project.datosEcotech?.notas || '');
         const [guiaEnvio, setGuiaEnvio] = useState(project.datosEcotech?.numeroGuiaEnvio || '');
         const [guiaRegreso, setGuiaRegreso] = useState(project.datosEcotech?.numeroGuiaRegreso || '');
-        const [fechaMuestreo, setFechaMuestreo] = useState('');
+        const [fechaMuestreo, setFechaMuestreo] = useState(project.datosEcotech?.fechaMuestreo || '');
         const [loading, setLoading] = useState(false);
         
-        const handleUpdate = async (updateData) => {
+        const handleUpdateStatus = async (updateData) => {
             setLoading(true);
             const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
-            await updateDoc(projectRef, updateData);
-            onFinalized();
-            onClose();
+            try {
+                await updateDoc(projectRef, updateData);
+                onFinalized();
+                onClose();
+            } catch (err) {
+                alert("Error al actualizar el estado.");
+                setLoading(false);
+            }
         };
 
         const handleSaveChanges = async () => {
@@ -2679,50 +2695,45 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
                     "datosEcotech.numeroGuiaEnvio": guiaEnvio,
                     "datosEcotech.numeroGuiaRegreso": guiaRegreso,
                 });
-                onFinalized(); 
-
-            } catch (err) {
-                console.error("Error al guardar los cambios:", err);
-                alert("No se pudieron guardar los cambios.");
-            } finally {
-                setLoading(false);
-            }
+                onFinalized();
+            } catch (err) { alert("No se pudieron guardar los cambios."); }
+            finally { setLoading(false); }
         };
 
-        const handleStart = () => handleUpdate({ "datosEcotech.estatus": 'Pend. No de proyecto' });
-        const handleSaveSamplingDate = () => handleUpdate({ "datosEcotech.estatus": 'En Proceso', "datosEcotech.fechaMuestreo": Timestamp.fromDate(new Date(fechaMuestreo)) });
-        const handleSendDigital = () => handleUpdate({ "datosEcotech.estatus": 'Enviado Dig.', "datosEcotech.fechaEnvioDigital": Timestamp.now() });
-        const handleSendPhysical = () => handleUpdate({ "datosEcotech.estatus": 'Enviado Físicamente', "datosEcotech.numeroGuiaEnvio": guiaEnvio });
-        const handleFinishProject = () => handleUpdate({ "datosEcotech.estatus": 'Terminado', "datosEcotech.numeroGuiaRegreso": guiaRegreso });
+        const handleStart = () => handleUpdateStatus({ "datosEcotech.estatus": 'Pend. No de proyecto' });
+        const handleSaveSamplingDate = () => handleUpdateStatus({ "datosEcotech.estatus": 'En Proceso', "datosEcotech.fechaMuestreo": Timestamp.fromDate(new Date(fechaMuestreo)) });
+        const handleSendDigital = () => handleUpdateStatus({ "datosEcotech.estatus": 'Enviado Dig.', "datosEcotech.fechaEnvioDigital": Timestamp.now() });
+        const handleSendPhysical = () => handleUpdateStatus({ "datosEcotech.estatus": 'Enviado Físicamente', "datosEcotech.numeroGuiaEnvio": guiaEnvio });
+        const handleFinishProject = () => handleUpdateStatus({ "datosEcotech.estatus": 'Terminado', "datosEcotech.numeroGuiaRegreso": guiaRegreso });
 
         return (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
                 <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg">
                     <h3 className="text-lg font-bold mb-2">Gestionar Proyecto Ecotech: {project.npu}</h3>
-                    <p className="text-sm text-gray-500 mb-6">Estado actual: <span className="font-bold">{project.estatusEcotech || 'Pendiente'}</span></p>
+                    <p className="text-sm text-gray-500 mb-6">Estado actual: <span className="font-bold">{project.datosEcotech?.estatus || 'Pendiente'}</span></p>
                     
                     <div className="space-y-4 mb-6">
-                        {project.estatusEcotech === 'Pendiente' && (
+                        {project.datosEcotech?.estatus === 'Pendiente' && (
                             <button onClick={handleStart} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg">Empezar Tarea</button>
                         )}
-                        {project.estatusEcotech === 'Pend. No de proyecto' && (
+                        {project.datosEcotech?.estatus === 'Pend. No de proyecto' && (
                             <div className="p-4 border rounded-md bg-gray-50">
                                 <label className="block text-sm font-medium">Introduce la Fecha de Muestreo</label>
                                 <input type="date" value={fechaMuestreo} onChange={e => setFechaMuestreo(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
                                 <button onClick={handleSaveSamplingDate} disabled={!fechaMuestreo} className="w-full mt-3 bg-blue-600 text-white font-bold py-2 rounded-lg disabled:bg-gray-400">Guardar Fecha y Poner "En Proceso"</button>
                             </div>
                         )}
-                        {project.estatusEcotech === 'En Proceso' && (
+                        {project.datosEcotech?.estatus === 'En Proceso' && (
                             <button onClick={handleSendDigital} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg">Marcar como "Enviado Digitalmente"</button>
                         )}
-                        {project.estatusEcotech === 'Enviado Dig.' && (
+                        {project.datosEcotech?.estatus === 'Enviado Dig.' && (
                             <div className="p-4 border rounded-md bg-gray-50">
                                 <label className="block text-sm font-medium">Introduce la Guía de Envío Físico</label>
                                 <input type="text" value={guiaEnvio} onChange={e => setGuiaEnvio(e.target.value)} placeholder="Número de guía..." className="mt-1 block w-full px-3 py-2 border rounded-md"/>
                                 <button onClick={handleSendPhysical} disabled={!guiaEnvio} className="w-full mt-3 bg-blue-600 text-white font-bold py-2 rounded-lg disabled:bg-gray-400">Marcar como "Enviado Físicamente"</button>
                             </div>
                         )}
-                        {project.estatusEcotech === 'Enviado Físicamente' && (
+                        {project.datosEcotech?.estatus === 'Enviado Físicamente' && (
                             <div className="p-4 border rounded-md bg-gray-50">
                                 <label className="block text-sm font-medium">Introduce la Guía de Regreso para Finalizar</label>
                                 <input type="text" value={guiaRegreso} onChange={e => setGuiaRegreso(e.target.value)} placeholder="Número de guía..." className="mt-1 block w-full px-3 py-2 border rounded-md"/>
@@ -2847,19 +2858,12 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
     );
 };
 
+/*
 // Componente para agregar tabla de proyectos terminados al dashboard del supervisor
 const DeliveredProjectsTable = ({ projects }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
-
-    const formatDate = (timestamp) => {
-        if (!timestamp) return '---';
-        const date = timestamp.toDate();
-        const userTimezoneOffset = date.getTimezoneOffset() * 60000;
-        const adjustedDate = new Date(date.getTime() + userTimezoneOffset);
-        return adjustedDate.toLocaleDateString('es-MX', { year: 'numeric', month: '2-digit', day: '2-digit' });
-    };
 
     const filteredProjects = projects.filter(p =>
         (p.npu && p.npu.toLowerCase().includes(searchTerm.toLowerCase())) ||
@@ -2929,123 +2933,242 @@ const DeliveredProjectsTable = ({ projects }) => {
         </div>
     );
 };
+*/
+
+//para las tarjetas de salud de los tecnicos que se visualizan en el panel del supervisor
+const TechnicianHealthCard = ({ techData }) => {
+    const {
+        nombre,
+        proyectosActivos,
+        proyectosEntregados,
+        horasAsignadas,
+        capacidadSemanal,
+        saturacion,
+        diasParaTerminar,
+        rendimiento,
+    } = techData;
+
+    const getSaturationColor = (percentage) => {
+        if (percentage > 100) return 'bg-red-500';
+        if (percentage > 85) return 'bg-yellow-500';
+        return 'bg-green-500';
+    };
+
+    const getPerformanceColor = (percentage) => {
+        if (percentage < 80) return 'text-red-600';
+        if (percentage < 100) return 'text-orange-500';
+        return 'text-green-600';
+    };
+
+    return (
+        <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 flex flex-col space-y-4">
+            <h3 className="text-xl font-bold text-gray-800 truncate">{nombre}</h3>
+            
+            <div>
+                <div className="flex justify-between text-sm font-medium text-gray-600">
+                    <span>Saturación (Horas Semanales)</span>
+                    <span>{horasAsignadas.toFixed(1)}h / {capacidadSemanal}h</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-4 mt-1">
+                    <div
+                        className={`h-4 rounded-full ${getSaturationColor(saturacion)}`}
+                        style={{ width: `${Math.min(saturacion, 100)}%` }}
+                    ></div>
+                </div>
+                 {saturacion > 100 && <p className="text-xs text-red-600 font-semibold mt-1">¡Sobrecargado por {(saturacion - 100).toFixed(0)}%!</p>}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 text-center border-t border-b py-4">
+                <div>
+                    <p className="text-2xl font-bold">{proyectosActivos}</p>
+                    <p className="text-sm text-gray-500">Proyectos Activos</p>
+                </div>
+                <div>
+                    <p className="text-2xl font-bold">{proyectosEntregados}</p>
+                    <p className="text-sm text-gray-500">Entregados (2025)</p>
+                </div>
+                <div>
+                    <p className="text-2xl font-bold">{diasParaTerminar.toFixed(1)}</p>
+                    <p className="text-sm text-gray-500">Días para Terminar</p>
+                </div>
+                <div>
+                    <p className={`text-2xl font-bold ${getPerformanceColor(rendimiento)}`}>{rendimiento.toFixed(0)}%</p>
+                    <p className="text-sm text-gray-500">Rendimiento (Est. vs Real)</p>
+                </div>
+            </div>
+
+        </div>
+    );
+};
 
 // El dashboard del Supervisor. Aquí ve los proyectos nuevos para asignar
 // y monitorea el progreso de los que ya están en proceso.
-// y los proyectos terminados tambien 
-
 const SupervisorDashboard = ({ user, userData, selectedRole }) => {
     const [view, setView] = useState('new');
     const [allProjects, setAllProjects] = useState([]);
+    const [technicians, setTechnicians] = useState([]);
+    const [reviewProjects, setReviewProjects] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [techniciansMap, setTechniciansMap] = useState({});
-    const [activeFilters, setActiveFilters] = useState({
-        cliente: '',
-        npu: '',
-        tecnico: '',
-        estadoEntrega: '',
-    }); 
+    const [modalProject, setModalProject] = useState(null);
+    const [assignModalProject, setAssignModalProject] = useState(null);
 
-    useEffect(() => {
-        setLoading(true);
-        const qProjects = query(collection(db, PROYECTOS_COLLECTION), where("estado", "!=", "Cotización"));
-        const unsubscribeProjects = onSnapshot(qProjects, (snapshot) => {
-            setAllProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-            setLoading(false);
-        });
+    const fetchData = async () => {
+        try {
+            const qProjects = query(collection(db, PROYECTOS_COLLECTION), where("estado", "!=", "Cotización"));
+            const qTechsOld = query(collection(db, "usuarios"), where("rol", "==", "tecnico"));
+            const qTechsNew = query(collection(db, "usuarios"), where("roles", "array-contains", "tecnico"));
+            const qReview = query(collection(db, PROYECTOS_COLLECTION), where("estado", "==", "En Revisión Final"));
 
-        const fetchTechnicians = async () => {
-            const q1 = query(collection(db, "usuarios"), where("rol", "==", "tecnico"));
-            const q2 = query(collection(db, "usuarios"), where("roles", "array-contains", "tecnico"));
+            const [projectsSnapshot, techsOldSnapshot, techsNewSnapshot, reviewSnapshot] = await Promise.all([
+                getDocs(qProjects),
+                getDocs(qTechsOld),
+                getDocs(qTechsNew),
+                getDocs(qReview),
+            ]);
 
-            const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
-
+            const projectsData = projectsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             const techMap = new Map();
-            snap1.forEach(doc => techMap.set(doc.id, doc.data().nombreCompleto));
-            snap2.forEach(doc => techMap.set(doc.id, doc.data().nombreCompleto));
+            techsOldSnapshot.forEach(doc => techMap.set(doc.id, { id: doc.id, ...doc.data() }));
+            techsNewSnapshot.forEach(doc => techMap.set(doc.id, { id: doc.id, ...doc.data() }));
             
-            setTechniciansMap(Object.fromEntries(techMap));
-        };
+            setAllProjects(projectsData);
+            setTechnicians(Array.from(techMap.values()));
+            setReviewProjects(reviewSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
 
-        fetchTechnicians();
-        
-        return () => unsubscribeProjects();
-    }, []);
-
-    const handleFilterChange = (filterName, value) => {
-        setActiveFilters(prev => ({ ...prev, [filterName]: value }));
+        } catch (err) {
+            console.error("Error fetching supervisor data:", err);
+        } finally {
+            setLoading(false);
+        }
     };
     
+    useEffect(() => {
+        setLoading(true);
+        fetchData();
+    }, []);
 
-    const { newProjects, assignedProjects, deliveredProjects } = React.useMemo(() => {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+    useEffect(() => {
+        if (view !== 'review') {
+            setReviewProjects([]);
+            return;
+        }
 
-        const projectsWithStatus = allProjects.map(p => {
-            let status = 'A Tiempo';
-            const dueDate = p.fechaEntregaInterna?.toDate();
-            if (!dueDate) {
-                status = 'Sin Fecha';
-            } else {
-                dueDate.setHours(0, 0, 0, 0);
-                const diffDays = (dueDate - today) / (1000 * 60 * 60 * 24);
-                if (diffDays < 0) status = 'Atrasado';
-                else if (diffDays <= 3) status = 'Por Vencer';
+        const q = query(collection(db, PROYECTOS_COLLECTION), where("estado", "==", "En Revisión Final"));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setReviewProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        });
+
+        return () => unsubscribe();
+    }, [view]);
+
+    const processedData = React.useMemo(() => {
+        if (technicians.length === 0 && allProjects.length === 0) {
+                return { healthData: [], newProjects: [], projectsByTechnician: {}, projectsForReview: [] };
+        }
+
+        const projectsByTechnician = {};
+        technicians.forEach(tech => {
+            projectsByTechnician[tech.id] = allProjects.filter(p =>
+                p.estado === 'Activo' && p.asignadoTecnicosIds?.includes(tech.id)
+            );
+        });
+
+        const healthData = technicians.map(tech => {
+            const activeProjects = projectsByTechnician[tech.id] || [];
+            const deliveredInYear = allProjects.filter(p => 
+                p.asignadoTecnicosIds?.includes(tech.id) &&
+                (p.estado === 'Archivado' || p.estado === 'Facturado') &&
+                p.fase1_fechaFinTecnico?.toDate().getFullYear() === 2025
+            ).length;
+
+            const horasAsignadas = activeProjects.reduce((sum, p) => sum + (p.horasEstimadas || 0), 0);
+            const capacidadSemanal = (tech.horasDisponiblesDiarias || 8) * 5;
+            const saturacion = capacidadSemanal > 0 ? (horasAsignadas / capacidadSemanal) * 100 : 0;
+            const diasParaTerminar = (tech.horasDisponiblesDiarias || 8) > 0 ? horasAsignadas / (tech.horasDisponiblesDiarias || 8) : 0;
+            
+            const completedProjectsWithMetrics = allProjects.filter(p =>
+                p.asignadoTecnicosIds?.includes(tech.id) &&
+                p.horasEstimadas > 0 &&
+                p.horasRegistradas > 0 &&
+                p.fechaFinTecnicoReal
+            );
+
+            let rendimiento = 100;
+            if (completedProjectsWithMetrics.length > 0) {
+                const totalRatio = completedProjectsWithMetrics.reduce((sum, p) => sum + (p.horasEstimadas / p.horasRegistradas), 0);
+                rendimiento = (totalRatio / completedProjectsWithMetrics.length) * 100;
             }
-            return { ...p, deliveryStatus: status };
-        });
 
-        const filtered = projectsWithStatus.filter(p => {
-            const clientMatch = !activeFilters.cliente || p.clienteNombre === activeFilters.cliente;
-            const npuMatch = !activeFilters.npu || p.npu.toLowerCase().includes(activeFilters.npu.toLowerCase());
-            const techMatch = !activeFilters.tecnico || p.asignadoTecnicosIds?.includes(activeFilters.tecnico);
-            const statusMatch = !activeFilters.estadoEntrega || p.deliveryStatus === activeFilters.estadoEntrega;
-            return clientMatch && npuMatch && techMatch && statusMatch;
+            return {
+                id: tech.id,
+                nombre: tech.nombreCompleto,
+                proyectosActivos: activeProjects.length,
+                proyectosEntregados: deliveredInYear,
+                horasAsignadas,
+                capacidadSemanal,
+                saturacion,
+                diasParaTerminar,
+                rendimiento,
+            };
         });
+            
+        const newProjects = allProjects.filter(p => p.estado === 'Activo' && (!p.asignadoTecnicosIds || p.asignadoTecnicosIds.length === 0));
+        for (const techId in projectsByTechnician) {
+            projectsByTechnician[techId].sort((a, b) => (b.prioridad || "").localeCompare(a.prioridad || ""));
+        }
 
-        const newP = [], assignedP = [], deliveredP = [];
-        filtered.forEach(p => {
-            if (p.fechaFinTecnico1) deliveredP.push(p);
-            if (p.estado === 'Activo') {
-                if (p.asignadoTecnicosIds && p.asignadoTecnicosIds.length > 0) {
-                    assignedP.push(p);
-                } else {
-                    newP.push(p);
-                }
-            }
-        });
-        
-        return { newProjects: newP, assignedProjects: assignedP, deliveredProjects: deliveredP };
-    }, [allProjects, activeFilters]);
+        for (const techId in projectsByTechnician) {
+            projectsByTechnician[techId].sort((a, b) => (b.prioridad || "").localeCompare(a.prioridad || ""));
+        }
+
+        const projectsForReview = allProjects.filter(p => p.estado === 'En Revisión Final');
+
+
+        return { healthData, newProjects, projectsByTechnician, projectsForReview };
+    }, [allProjects, technicians]);
 
     return (
         <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-6">Panel de Supervisión</h1>
-            <div className="mb-6 border-b border-gray-200">
-                <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-                    <button onClick={() => setView('new')} className={`relative whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'new' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>
-                        Nuevos por Asignar
-                        {newProjects.length > 0 && <span className="absolute top-2 -right-4 ml-2 px-2 py-0.5 text-xs font-bold text-white bg-red-500 rounded-full">{newProjects.length}</span>}
-                    </button>
-                    <button onClick={() => setView('assigned')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'assigned' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>Asignados y en Proceso</button>
-                    <button onClick={() => setView('delivered')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'delivered' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>
-                        Entregados
-                    </button>
-                </nav>
-            </div>
-            
-            {loading ? <p>Cargando proyectos...</p> : (
-                <>
-                    <ProjectFilters
-                        projects={allProjects}
-                        techniciansMap={techniciansMap}
-                        onFilterChange={handleFilterChange}
-                    />
-                    {view === 'new' && <ProjectsTable projects={newProjects} onUpdateProject={() => {}} userRole="supervisor" supervisorView="new" user={user} userData={userData} selectedRole={selectedRole} />}
-                    {view === 'assigned' && <ProjectsTable projects={assignedProjects} onUpdateProject={() => {}} userRole="supervisor" supervisorView="assigned" user={user} userData={userData} selectedRole={selectedRole} />}
-                    {view === 'delivered' && <DeliveredProjectsTable projects={deliveredProjects} />}
-                </>
+            {loading ? <p>Calculando métricas...</p> : (
+                <div className="grid grid-cols-1 lg:grid-cols-[1fr,3fr] gap-8">
+                    <div className="space-y-4">
+                        <h2 className="text-lg font-semibold text-gray-700">Vistas de Gestión</h2>
+                        <button onClick={() => setView('new')} className={`w-full p-3 rounded-lg text-left transition-colors ${view === 'new' ? 'bg-blue-600 text-white shadow-lg' : 'bg-white hover:bg-gray-50'}`}>
+                            <div className="flex justify-between items-center">
+                                <span className="font-bold">Nuevos por Asignar</span>
+                                {processedData.newProjects.length > 0 && <span className="px-2 py-0.5 text-xs font-bold text-white bg-red-500 rounded-full">{processedData.newProjects.length}</span>}
+                            </div>
+                        </button>
+                        <button onClick={() => setView('review')} className={`w-full p-3 rounded-lg text-left transition-colors ${view === 'review' ? 'bg-blue-600 text-white shadow-lg' : 'bg-white hover:bg-gray-50'}`}>
+                             <div className="flex justify-between items-center">
+                                <span className="font-bold">Revisión Final</span>
+                                {reviewProjects.length > 0 && <span className="px-2 py-0.5 text-xs font-bold text-white bg-red-500 rounded-full">{reviewProjects.length}</span>}
+                            </div>
+                        </button>
+                        <hr className="my-4"/>
+                        <h2 className="text-lg font-semibold text-gray-700">Equipo Técnico</h2>
+                        <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2">
+                            {processedData.healthData.map(tech => (
+                                <button key={tech.id} onClick={() => setView(tech.id)} className={`w-full text-left transition-colors ${view === tech.id ? 'ring-2 ring-blue-500' : ''}`}>
+                                    <TechnicianHealthCard techData={tech} />
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="min-w-0">
+                        {view === 'new' && <ProjectsTable projects={processedData.newProjects} userRole="supervisor" supervisorView="new" onAssignClick={setAssignModalProject} user={user} userData={userData} selectedRole={selectedRole}/>}
+                        {view === 'review' && <ReviewProjectsTable projects={reviewProjects} onUpdateProject={fetchData} />}
+
+                        {processedData.projectsByTechnician[view] && (
+                            <ProjectsTable projects={processedData.projectsByTechnician[view]} userRole="supervisor" supervisorView="techDetail" onManageClick={setModalProject} {...{user, userData, selectedRole}} />
+                        )}
+                    </div>
+                </div>
             )}
+
+            {modalProject && <ProjectManagementModal project={modalProject} onClose={() => setModalProject(null)} onUpdate={fetchData} {...{user, userData, userRole:"supervisor"}} />}
+            {assignModalProject && <AssignProjectModal project={assignModalProject} onClose={() => setAssignModalProject(null)} onFinalized={fetchData} />}
         </div>
     );
 };
@@ -3073,7 +3196,7 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
                     setActiveTaskInfo({
                         ...taskData,
                         projectId: projDoc.id,
-                        projectDetails: projDoc.exists() ? projDoc.data() : null,
+                        projectDetails: projDoc.exists() ? { id: projDoc.id, ...projDoc.data() } : null,
                     });
                 });
             } else {
@@ -3249,9 +3372,7 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
                 const evidenceRef = ref(storage, `evidencia_tecnicos/${project.id}/${Date.now()}_${evidenceFile.name}`);
                 const evidenceUploadTask = uploadBytesResumable(evidenceRef, evidenceFile);
                 const evidenceUrl = await getDownloadURL((await evidenceUploadTask).ref);
-
                 const { numeroNota } = await generateAndSaveNota();
-                
                 const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
                 
                 const updatePayload = {
@@ -3259,22 +3380,27 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
                 };
 
                 if (project.fase1_fechaFinTecnico) {
+                    // Fase 2
                     updatePayload.fase2_comentariosTecnico = comments;
                     updatePayload.fase2_urlEvidencia = evidenceUrl;
                     updatePayload.fase2_numeroNotaInterna = numeroNota;
                     updatePayload.fase2_fechaFinTecnico = Timestamp.now();
                 } else {
+                    // Fase 1
                     updatePayload.fase1_comentariosTecnico = comments;
                     updatePayload.fase1_urlEvidencia = evidenceUrl;
                     updatePayload.fase1_numeroNotaInterna = numeroNota;
                     updatePayload.fase1_fechaFinTecnico = Timestamp.now();
                 }
                 
+                if (!project.fechaFinTecnicoReal) {
+                    updatePayload.fechaFinTecnicoReal = Timestamp.now();
+                }
+                
                 await updateDoc(projectRef, updatePayload);
                 
                 onFinalized();
                 onClose();
-
             } catch (err) {
                 console.error("Error al completar la tarea:", err);
                 setError(err.message || "Ocurrió un error al guardar los datos.");
@@ -3330,17 +3456,36 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
         if (!project) return null;
         const isInternalProvider = project.projectDetails.proveedorNombre?.toLowerCase().includes('ecologia');
         const isSoftFinished = !!project.projectDetails.fechaFinTecnicoReal;
+        
         return (
             <div className="bg-white p-6 rounded-lg shadow-lg">
                 <h3 className="text-lg font-bold mb-4">Herramientas para: {project.projectDetails.npu}</h3>
                 <div className="space-y-4">
                     <button onClick={() => { setModalProject(project.projectDetails); setModalType('log'); }} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-600 hover:bg-gray-700">Ver Bitácora</button>
+
                     {isInternalProvider ? (
-                        <button onClick={() => { setModalProject(project.projectDetails); setModalType('task'); }} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">Generar Nota de Entrega</button>
-                    ) : isSoftFinished ? (
-                        <p className="text-center p-2 bg-green-100 text-green-800 rounded-md text-sm font-semibold">Parte Técnica Finalizada</p>
+                        <button onClick={() => { setModalProject(project.projectDetails); setModalType('task'); }} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
+                            Generar Nota de Entrega
+                        </button>
                     ) : (
-                        <button onClick={() => promptSoftFinish(project.projectId)} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">Finalizar Parte Técnica</button>
+                        <>
+                            {!isSoftFinished && (
+                                <button onClick={() => promptSoftFinish(project.projectId)} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">
+                                    Finalizar Parte Técnica
+                                </button>
+                            )}
+                            
+                            {isSoftFinished && (
+                                <>
+                                    <p className="text-center p-2 bg-green-100 text-green-800 rounded-md text-sm font-semibold">
+                                        Parte Técnica Finalizada (En espera de proveedor)
+                                    </p>
+                                    <button onClick={() => { setModalProject(project.projectDetails); setModalType('task'); }} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
+                                        Generar Nota de Entrega Final
+                                    </button>
+                                </>
+                            )}
+                        </>
                     )}
                 </div>
             </div>
@@ -3410,233 +3555,6 @@ const ActiveTaskBanner = ({ task, onEndDay }) => {
         </div>
     );
 };
-
-// Tabla quedo obsoleta debido a las modificaciones al dashboard del tecnico
-/*
-const TecnicoProjectsTable = ({ projects, onUpdateProject, user, userData, handleStartProject, selectedRole }) => {
-    const [modalProject, setModalProject] = useState(null);
-    const [modalType, setModalType] = useState('');
-    const [confirmingAction, setConfirmingAction] = useState(null);
-
-    const handleSoftFinish = async (projectId) => {
-        const projectRef = doc(db, PROYECTOS_COLLECTION, projectId);
-        try {
-            await updateDoc(projectRef, {
-                fechaFinTecnicoReal: Timestamp.now()
-            });
-        } catch (err) {
-            alert("Error al finalizar la tarea técnica.");
-        }
-        setConfirmingAction(null);
-    };
-    
-    const promptSoftFinish = (projectId) => {
-        setConfirmingAction({
-            title: "Confirmar Finalización Técnica",
-            message: "Esta acción registrará la fecha de hoy como tu fin de tarea para este proyecto, pero el proyecto seguirá activo para el supervisor. ¿Estás seguro?",
-            onConfirm: () => handleSoftFinish(projectId),
-            confirmText: "Sí, Finalizar"
-        });
-    };
-
-    const ManageTaskModal = ({ project, onClose, onFinalized }) => {
-        const [comments, setComments] = useState('');
-        const [evidenceFile, setEvidenceFile] = useState(null);
-        const [loading, setLoading] = useState(false);
-        const [error, setError] = useState('');
-
-        const handleFileChange = (e) => {
-            if (e.target.files[0]) {
-                setEvidenceFile(e.target.files[0]);
-            }
-        };
-
-        const generateAndSaveNota = async () => {
-            if (typeof window.jspdf === 'undefined') {
-                throw new Error("La librería para generar PDFs (jsPDF) no se ha cargado.");
-            }
-            const { jsPDF } = window.jspdf;
-            const pdfDoc = new jsPDF();
-            const anioActual = new Date().getFullYear();
-            const contadorRef = doc(db, "contadores", `notas_entrega_${anioActual}`);
-            
-            const nuevoConsecutivo = await runTransaction(db, async (transaction) => {
-                const contadorDoc = await transaction.get(contadorRef);
-                const nuevoValor = (contadorDoc.exists() ? contadorDoc.data().consecutivo : 0) + 1;
-                transaction.set(contadorRef, { consecutivo: nuevoValor }, { merge: true });
-                return nuevoValor;
-            });
-            const numeroNota = `${anioActual}-${nuevoConsecutivo.toString().padStart(4, '0')}`;
-
-            const logoUrl = "https://www.grupoevelsa.com/assets/images/Logo Evelsa 2.png";
-            const response = await fetch(logoUrl);
-            const blob = await response.blob();
-            const reader = new FileReader();
-            await new Promise((resolve, reject) => {
-                reader.onload = resolve;
-                reader.onerror = reject;
-                reader.readAsDataURL(blob);
-            });
-            const logoBase64 = reader.result;
-            
-            pdfDoc.addImage(logoBase64, 'PNG', 15, 15, 50, 15);
-            pdfDoc.setFont("helvetica", "bold");
-            pdfDoc.setFontSize(10);
-            pdfDoc.text("ECOLOGÍA Y ASESORÍA AMBIENTAL S. DE R.L. DE C.V.", 105, 35, { align: 'center' });
-            pdfDoc.setFont("helvetica", "normal");
-            pdfDoc.setFontSize(8);
-            pdfDoc.text("HERMANOS ESCOBAR 6150-2 PARQUE INDUSTRIAL OMEGA", 105, 40, { align: 'center' });
-            pdfDoc.text("CP.32410 CD. JUÁREZ, CHIHUAHUA. RFC EAA12060765A", 105, 44, { align: 'center' });
-            pdfDoc.setFontSize(16);
-            pdfDoc.setFont("helvetica", "bold");
-            pdfDoc.text("NOTA DE ENTREGA", 105, 55, { align: 'center' });
-            pdfDoc.text(numeroNota, 180, 65);
-            pdfDoc.setFontSize(11);
-            pdfDoc.setFont("helvetica", "normal");
-            pdfDoc.text(`FECHA: ${new Date().toLocaleDateString('es-MX')}`, 20, 75);
-            pdfDoc.text(`PROYECTO: ${project.npu}`, 20, 85);
-            pdfDoc.text(`NOMBRE/RAZÓN SOCIAL: ${project.clienteNombre}`, 20, 95);
-            pdfDoc.rect(15, 105, 180, 40);
-            pdfDoc.text("DESCRIPCIÓN", 20, 111);
-            pdfDoc.text("CANTIDAD", 170, 111);
-
-            const maxDescriptionWidth = 145;
-            const splitDescription = pdfDoc.splitTextToSize(project.servicioNombre, maxDescriptionWidth);
-            pdfDoc.text(splitDescription, 20, 118);
-
-            pdfDoc.text("1", 175, 118);
-            pdfDoc.text("Comentarios:", 20, 155);
-            const splitComments = pdfDoc.splitTextToSize(comments, 170);
-            pdfDoc.text(splitComments, 20, 162);
-            pdfDoc.text("RECIBIDO POR:", 20, 250);
-            pdfDoc.line(20, 260, 100, 260);
-            pdfDoc.text("NOMBRE Y FIRMA", 45, 265);
-            pdfDoc.save(`Nota_Entrega_${numeroNota}.pdf`);
-            return { numeroNota };
-        };
-
-        const handleCompleteTask = async () => {
-            if (!evidenceFile) {
-                setError("Es obligatorio subir el archivo PDF de evidencia.");
-                return;
-            }
-            setLoading(true);
-            setError('');
-
-            try {
-                const evidenceRef = ref(storage, `evidencia_tecnicos/${project.id}/${Date.now()}_${evidenceFile.name}`);
-                const evidenceUploadTask = uploadBytesResumable(evidenceRef, evidenceFile);
-                const evidenceUrl = await getDownloadURL((await evidenceUploadTask).ref);
-
-                const { numeroNota } = await generateAndSaveNota();
-                
-                const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
-                
-                const updatePayload = {
-                    estado: 'Terminado Internamente',
-                };
-
-                if (project.fase1_fechaFinTecnico) {
-                    updatePayload.fase2_comentariosTecnico = comments;
-                    updatePayload.fase2_urlEvidencia = evidenceUrl;
-                    updatePayload.fase2_numeroNotaInterna = numeroNota;
-                    updatePayload.fase2_fechaFinTecnico = Timestamp.now();
-                } else {
-                    updatePayload.fase1_comentariosTecnico = comments;
-                    updatePayload.fase1_urlEvidencia = evidenceUrl;
-                    updatePayload.fase1_numeroNotaInterna = numeroNota;
-                    updatePayload.fase1_fechaFinTecnico = Timestamp.now();
-                }
-                
-                await updateDoc(projectRef, updatePayload);
-                
-                onFinalized();
-                onClose();
-
-            } catch (err) {
-                console.error("Error al completar la tarea:", err);
-                setError(err.message || "Ocurrió un error al guardar los datos.");
-                setLoading(false);
-            }
-        };
-
-        return (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
-                <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg">
-                    <h3 className="text-lg font-bold mb-4">Gestionar Tarea: {project.npu}</h3>
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Comentarios Finales (para Nota de Entrega)</label>
-                            <textarea value={comments} onChange={e => setComments(e.target.value)} rows="4" className="mt-1 block w-full px-3 py-2 border rounded-md"></textarea>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700">Subir Evidencia Técnica (PDF)</label>
-                            <input type="file" accept=".pdf" onChange={handleFileChange} className="mt-1 block w-full text-sm"/>
-                        </div>
-                    </div>
-                    <Alert message={error} type="error" onClose={() => setError('')} />
-                    <div className="mt-6 flex justify-end space-x-3">
-                        <button onClick={onClose} disabled={loading} className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded">Cancelar</button>
-                        <button onClick={handleCompleteTask} disabled={loading} className="bg-[#b0ef26] hover:bg-[#9ac91e] text-black font-bold py-2 px-4 rounded">{loading ? 'Enviando...' : 'Generar Nota y Finalizar Tarea'}</button>
-                    </div>
-                </div>
-            </div>
-        );
-    };
-
-    const formatDate = (timestamp) => !timestamp ? '---' : new Date(timestamp.seconds * 1000).toLocaleDateString('es-MX');
-
-    return (
-        <>
-            <div className="overflow-x-auto bg-white rounded-lg shadow">
-                <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                        <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Límite</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                        {projects.map(project => {
-                            const isInternalProvider = project.proveedorNombre?.toLowerCase().includes('ecologia');
-                            const isSoftFinished = !!project.fechaFinTecnicoReal;
-                            return (
-                                <tr key={project.id}>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.clienteNombre}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.servicioNombre}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">{formatDate(project.fechaEntregaInterna)}</td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center space-x-4">
-                                            {project.tecnicosStatus[user.uid] === 'No Visto' && <button onClick={() => handleStartProject(project)} className="text-green-600 hover:text-green-900">Empezar</button>}
-                                            {project.tecnicosStatus[user.uid] === 'En Proceso' && (
-                                                <>
-                                                    {isInternalProvider ? (
-                                                        <button onClick={() => { setModalProject(project); setModalType('task'); }} className="text-indigo-600">Gestionar Entrega</button>
-                                                    ) : isSoftFinished ? (
-                                                        <span className="text-sm font-semibold text-green-600">Parte Técnica Finalizada</span>
-                                                    ) : (
-                                                        <button onClick={() => promptSoftFinish(project.id)} className="text-blue-600">Finalizar Parte Técnica</button>
-                                                    )}
-                                                    <button onClick={() => { setModalProject(project); setModalType('log'); }} className="text-gray-600">Bitácora</button>
-                                                </>
-                                            )}
-                                        </div>
-                                    </td>
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
-            </div>
-            {modalProject && modalType === 'task' && <ManageTaskModal project={modalProject} onClose={() => setModalProject(null)} onFinalized={onUpdateProject} />}
-            {modalProject && modalType === 'log' && <ProjectLogModal project={modalProject} user={user} userData={userData} onClose={() => setModalProject(null)} selectedRole={selectedRole} />}
-            {confirmingAction && <ConfirmationModal {...confirmingAction} onCancel={() => setConfirmingAction(null)} />}
-        </>
-    );
-};
-*/
 
 // El dashboard de Finanzas. Gestiona las facturas, cuentas por cobrar y por pagar.
 const FinanzasDashboard = ({ user, userData }) => {
@@ -4360,6 +4278,8 @@ const PracticanteDashboard = () => {
     const [submittingId, setSubmittingId] = useState(null);
     const [confirmingAction, setConfirmingAction] = useState(null);
     const [sortOrder, setSortOrder] = useState('desc');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(10);
 
     const fetchProjects = () => {
         setLoading(true);
@@ -4368,7 +4288,11 @@ const PracticanteDashboard = () => {
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
             setProjects(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
             setLoading(false);
+        }, (error) => {
+            console.error("Error fetching projects for practicante: ", error);
+            setLoading(false);
         });
+        
         return unsubscribe;
     };
 
@@ -4391,6 +4315,13 @@ const PracticanteDashboard = () => {
         return sortable;
     }, [projects, sortOrder]);
 
+    const currentItems = sortedProjects.slice(
+        (currentPage - 1) * itemsPerPage,
+        currentPage * itemsPerPage
+    );
+    const totalPages = Math.ceil(sortedProjects.length / itemsPerPage);
+    const paginate = (pageNumber) => setCurrentPage(pageNumber);
+
     const handleSendToReview = async (projectId) => {
         setSubmittingId(projectId);
         try {
@@ -4410,7 +4341,10 @@ const PracticanteDashboard = () => {
         setConfirmingAction({
             title: "Confirmar Envío",
             message: "¿Estás seguro de que todos los documentos están listos y quieres enviar este proyecto a revisión final?",
-            onConfirm: () => handleSendToReview(projectId)
+            onConfirm: () => {
+                handleSendToReview(projectId);
+                setConfirmingAction(null);
+            }
         });
     };
 
@@ -4479,90 +4413,104 @@ const PracticanteDashboard = () => {
         <div>
             <div className="flex justify-between items-center mb-6">
                 <h1 className="text-3xl font-bold text-gray-900">Proyectos Listos para Documentar</h1>
-                <div className="flex items-center space-x-2">
-                    <span className="text-sm font-medium">Ordenar por Fecha de Entrega:</span>
-                    <button onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')} className="p-2 border rounded-md text-sm bg-white shadow-sm">
-                        {sortOrder === 'asc' ? 'Más Antiguos Primero ↑' : 'Más Recientes Primero ↓'}
-                    </button>
+                <div className="flex items-center space-x-4">
+                    <div className="flex items-center">
+                        <span className="text-sm mr-2">Mostrar:</span>
+                        <select value={itemsPerPage} onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }} className="px-2 py-1 border border-gray-300 rounded-md">
+                            <option value={10}>10</option>
+                            <option value={25}>25</option>
+                            <option value={50}>50</option>
+                        </select>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                        <span className="text-sm font-medium">Ordenar por Fecha:</span>
+                        <button onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')} className="p-2 border rounded-md text-sm bg-white shadow-sm">
+                            {sortOrder === 'asc' ? 'Ascendente ↑' : 'Descendente ↓'}
+                        </button>
+                    </div>
                 </div>
             </div>
 
             {loading ? <p>Cargando...</p> : sortedProjects.length === 0 ? <p>No hay proyectos pendientes.</p> : (
-                <div className="overflow-x-auto bg-white rounded-lg shadow">
-                    <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
-                            <tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Documentos del Técnico</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                            {sortedProjects.map(project => {
-                                const statusClass = project.estado === 'En Revisión Final' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800';
-                                return (
-                                    <tr key={project.id} className={project.motivoRechazo ? "bg-orange-50" : ""}>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{project.npu}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{project.clienteNombre}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{project.servicioNombre}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusClass}`}>
-                                                {project.estado}
-                                            </span>
-                                            {project.motivoRechazo && <p className="text-xs text-orange-700 mt-1">Rechazado</p>}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div className="flex flex-col space-y-1 text-sm">
-                                                {project.urlEvidenciaTecnico1 && (
-                                                    <div className="p-2 border-b">
-                                                        <p className="font-semibold text-xs">Fase 1:</p>
-                                                        <a href={project.urlEvidenciaTecnico1} target="_blank" rel="noopener noreferrer" className="text-blue-600">Ver Evidencia 1</a>
-                                                        <p>Nota Interna 1: <span className="font-semibold">{project.numeroNotaInterna1 || 'N/A'}</span></p>
-                                                    </div>
-                                                )}
-                                                {project.urlEvidenciaTecnico2 && (
-                                                    <div className="p-2">
-                                                        <p className="font-semibold text-xs">Fase 2:</p>
-                                                        <a href={project.urlEvidenciaTecnico2} target="_blank" rel="noopener noreferrer" className="text-blue-600">Ver Evidencia 2</a>
-                                                        <p>Nota Interna 2: <span className="font-semibold">{project.numeroNotaInterna2 || 'N/A'}</span></p>
-                                                    </div>
-                                                )}
-                                                {project.urlEvidenciaTecnico && !project.urlEvidenciaTecnico1 && (
-                                                    <a href={project.urlEvidenciaTecnico} target="_blank" rel="noopener noreferrer" className="text-blue-600">Ver Evidencia</a>
-                                                )}
-                                                
-                                                {project.motivoRechazo && (
-                                                    <div className="mt-2 p-2 bg-orange-100 text-orange-800 rounded-md">
-                                                        <p className="font-bold text-xs">Correcciones Pendientes:</p>
-                                                        <p className="text-xs">{project.motivoRechazo}</p>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                            <div className="flex items-center space-x-4">
-                                                <button onClick={() => setModalProject(project)} className="text-indigo-600 hover:text-indigo-800">Gestionar Entrega</button>
-                                                {project.estado === 'Terminado Internamente' ? (
-                                                    <button onClick={() => promptSendToReview(project.id)} disabled={submittingId === project.id} className="text-green-600 hover:text-green-800 disabled:opacity-50">
-                                                        {submittingId === project.id ? 'Enviando...' : 'Enviar a Revisión'}
-                                                    </button>
-                                                ) : (
-                                                    <span className="text-sm font-semibold text-gray-500">Enviado</span>
-                                                )}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                </div>
+                <>
+                    <div className="overflow-x-auto bg-white rounded-lg shadow">
+                        <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Documentos y correcciones</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                    {currentItems.map(project => {
+                                    const statusClass = project.estado === 'En Revisión Final' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800';
+                                    return (
+                                        <tr key={project.id} className={project.motivoRechazo ? "bg-orange-50" : ""}>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm">{project.npu}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm">{project.clienteNombre}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm">{project.servicioNombre}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusClass}`}>
+                                                    {project.estado}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="flex flex-col space-y-2 text-sm">
+                                                    {project.fase1_urlEvidencia && (
+                                                        <div>
+                                                            <p className="font-semibold text-xs">Fase 1:</p>
+                                                            <a href={project.fase1_urlEvidencia} target="_blank" rel="noopener noreferrer" className="text-blue-600">Ver Evidencia 1</a>
+                                                            <p>Nota Interna: <span className="font-semibold">{project.fase1_numeroNotaInterna || 'N/A'}</span></p>
+                                                        </div>
+                                                    )}
+                                                    {project.fase2_urlEvidencia && (
+                                                        <div>
+                                                            <p className="font-semibold text-xs">Fase 2:</p>
+                                                            <a href={project.fase2_urlEvidencia} target="_blank" rel="noopener noreferrer" className="text-blue-600">Ver Evidencia 2</a>
+                                                            <p>Nota Interna: <span className="font-semibold">{project.fase2_numeroNotaInterna || 'N/A'}</span></p>
+                                                        </div>
+                                                    )}
+                                                    {project.motivoRechazo && (
+                                                        <div className="mt-2 p-2 bg-red-100 text-red-800 rounded-md text-xs border border-red-200">
+                                                            <p className="font-bold">Requiere Corrección:</p>
+                                                            <p>{project.motivoRechazo}</p>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                                <div className="flex items-center space-x-4">
+                                                    <button onClick={() => setModalProject(project)} className="text-indigo-600 hover:text-indigo-800">Gestionar Entrega</button>
+                                                    {project.estado === 'Terminado Internamente' ? (
+                                                        <button onClick={() => promptSendToReview(project.id)} disabled={submittingId === project.id} className="text-green-600 hover:text-green-800 disabled:opacity-50">
+                                                            {submittingId === project.id ? 'Enviando...' : 'Enviar a Revisión'}
+                                                        </button>
+                                                    ) : (
+                                                        <span className="text-sm font-semibold text-gray-500">Enviado</span>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div className="mt-4 flex justify-between items-center">
+                        <span className="text-sm text-gray-700">Página {currentPage} de {totalPages}</span>
+                        <div>
+                            <button onClick={() => paginate(currentPage - 1)} disabled={currentPage === 1} className="px-3 py-1 border rounded-md bg-white mr-2 disabled:opacity-50">Anterior</button>
+                            <button onClick={() => paginate(currentPage + 1)} disabled={currentPage === totalPages || totalPages === 0} className="px-3 py-1 border rounded-md bg-white disabled:opacity-50">Siguiente</button>
+                        </div>
+                    </div>
+                </>
             )}
             {modalProject && <ManageFinalDeliveryModal project={modalProject} onClose={() => setModalProject(null)} onFinalized={fetchProjects} />}
-            {confirmingAction && <ConfirmationModal title={confirmingAction.title} message={confirmingAction.message} onConfirm={confirmingAction.onConfirm} onCancel={() => setConfirmingAction(null)} />}
+            {confirmingAction && <ConfirmationModal {...confirmingAction} onCancel={() => setConfirmingAction(null)} />}
         </div>
     );
 };

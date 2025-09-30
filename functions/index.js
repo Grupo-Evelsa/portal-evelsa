@@ -260,7 +260,7 @@ exports.processTimeLog = onDocumentCreated("registrosDeTiempo/{logId}",
         const durationInHours = durationInMillis / (1000 * 60 * 60);
 
         const projectRef =
-         admin.firestore().collection("proyectos").doc(projectId);
+         admin.firestore().collection("proyectos_v2").doc(projectId);
 
         await projectRef.update({
           horasRegistradas:

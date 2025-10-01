@@ -3186,10 +3186,15 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
 
     useEffect(() => {
         if (!user?.uid) return;
+
         let unsubscribeProject = () => {};
+
         const userDocRef = doc(db, "usuarios", user.uid);
         const unsubscribeUser = onSnapshot(userDocRef, (userDoc) => {
+            unsubscribeProject();
+
             const taskData = userDoc.data()?.tareaActiva;
+
             if (taskData && taskData.projectId) {
                 const projDocRef = doc(db, PROYECTOS_COLLECTION, taskData.projectId);
                 unsubscribeProject = onSnapshot(projDocRef, (projDoc) => {
@@ -3203,6 +3208,7 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
                 setActiveTaskInfo(null);
             }
         });
+
         return () => {
             unsubscribeUser();
             unsubscribeProject();

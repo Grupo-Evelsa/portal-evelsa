@@ -3062,30 +3062,28 @@ const SupervisorDashboard = ({ user, userData, selectedRole }) => {
     }, [view]);
 
     const processedData = React.useMemo(() => {
-        if (technicians.length === 0 && allProjects.length === 0) {
-                return { healthData: [], newProjects: [], projectsByTechnician: {}, projectsForReview: [] };
-        }
-
-        const projectsByTechnician = {};
-        technicians.forEach(tech => {
-            projectsByTechnician[tech.id] = allProjects.filter(p =>
-                p.estado === 'Activo' && p.asignadoTecnicosIds?.includes(tech.id)
-            );
-        });
+        if (technicians.length === 0) return { healthData: [], newProjects: [], projectsByTechnician: {} };
 
         const healthData = technicians.map(tech => {
-            const activeProjects = projectsByTechnician[tech.id] || [];
-            const deliveredInYear = allProjects.filter(p => 
-                p.asignadoTecnicosIds?.includes(tech.id) &&
-                (p.estado === 'Archivado' || p.estado === 'Facturado') &&
-                p.fase1_fechaFinTecnico?.toDate().getFullYear() === 2025
-            ).length;
+            const assignedProjects = allProjects.filter(p => p.asignadoTecnicosIds?.includes(tech.id));
+            
+            const activeProjects = assignedProjects.filter(p => p.estado === 'Activo' && !p.fechaFinTecnicoReal);
+            
+            const horasAsignadas = activeProjects.reduce((sum, p) => {
+                const remainingHours = Math.max(0, (p.horasEstimadas || 0) - (p.horasRegistradas || 0));
+                return sum + remainingHours;
+            }, 0);
 
-            const horasAsignadas = activeProjects.reduce((sum, p) => sum + (p.horasEstimadas || 0), 0);
             const capacidadSemanal = (tech.horasDisponiblesDiarias || 8) * 5;
             const saturacion = capacidadSemanal > 0 ? (horasAsignadas / capacidadSemanal) * 100 : 0;
             const diasParaTerminar = (tech.horasDisponiblesDiarias || 8) > 0 ? horasAsignadas / (tech.horasDisponiblesDiarias || 8) : 0;
-            
+
+            const deliveredInYear = allProjects.filter(p => 
+                p.asignadoTecnicosIds?.includes(tech.id) &&
+                (p.estado === 'Archivado' || p.estado === 'Facturado') &&
+                (p.fase1_fechaFinTecnico || p.fechaFinTecnicoReal)?.toDate().getFullYear() === new Date().getFullYear()
+            ).length;
+
             const completedProjectsWithMetrics = allProjects.filter(p =>
                 p.asignadoTecnicosIds?.includes(tech.id) &&
                 p.horasEstimadas > 0 &&
@@ -3111,18 +3109,18 @@ const SupervisorDashboard = ({ user, userData, selectedRole }) => {
                 rendimiento,
             };
         });
-            
-        const newProjects = allProjects.filter(p => p.estado === 'Activo' && (!p.asignadoTecnicosIds || p.asignadoTecnicosIds.length === 0));
-        for (const techId in projectsByTechnician) {
-            projectsByTechnician[techId].sort((a, b) => (b.prioridad || "").localeCompare(a.prioridad || ""));
-        }
 
-        for (const techId in projectsByTechnician) {
-            projectsByTechnician[techId].sort((a, b) => (b.prioridad || "").localeCompare(a.prioridad || ""));
-        }
+        const newProjects = allProjects.filter(p => p.estado === 'Activo' && (!p.asignadoTecnicosIds || p.asignadoTecnicosIds.length === 0));
+
+        const projectsByTechnician = {};
+        technicians.forEach(tech => {
+            projectsByTechnician[tech.id] = allProjects.filter(p =>
+                p.estado === 'Activo' && p.asignadoTecnicosIds?.includes(tech.id)
+            );
+            projectsByTechnician[tech.id].sort((a, b) => (b.prioridad || "").localeCompare(a.prioridad || ""));
+        });
 
         const projectsForReview = allProjects.filter(p => p.estado === 'En Revisión Final');
-
 
         return { healthData, newProjects, projectsByTechnician, projectsForReview };
     }, [allProjects, technicians]);

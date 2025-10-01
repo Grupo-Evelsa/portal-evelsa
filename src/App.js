@@ -99,6 +99,61 @@ const formatDate = (timestamp) => {
     });
 };
 
+//countdown
+const useCountdown = (endTime) => {
+    const [timeLeft, setTimeLeft] = useState(0);
+
+    useEffect(() => {
+        if (!endTime) {
+            setTimeLeft(0);
+            return;
+        }
+
+        const endTimestamp = endTime.toDate().getTime();
+        const interval = setInterval(() => {
+            const now = Date.now();
+            const remaining = endTimestamp - now;
+            setTimeLeft(remaining > 0 ? remaining : 0);
+        }, 1000);
+
+        return () => clearInterval(interval);
+    }, [endTime]);
+
+    const formatTime = (ms) => {
+        if (ms <= 0) return "00:00";
+        const totalSeconds = Math.floor(ms / 1000);
+        const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+        const seconds = String(totalSeconds % 60).padStart(2, '0');
+        return `${minutes}:${seconds}`;
+    };
+
+    return formatTime(timeLeft);
+};
+
+// componente para el banner de descanso para ir a comer
+const BreakBanner = ({ breakInfo, onEndBreak }) => {
+    const breakEndTime = new Timestamp(breakInfo.inicio.seconds + (75 * 60), breakInfo.inicio.nanoseconds);
+    const timeLeft = useCountdown(breakEndTime);
+
+    return (
+        <div className="bg-yellow-500 text-white p-4 rounded-lg shadow-lg mb-8 flex justify-between items-center sticky top-20 z-30">
+            <div>
+                <p className="font-bold">En Descanso</p>
+                <p className="text-lg">El trabajo se reanudará automáticamente.</p>
+            </div>
+            <div className="flex items-center space-x-6">
+                <div className="text-right">
+                    <p className="text-2xl font-mono">{timeLeft}</p>
+                    <p className="text-xs">Tiempo Restante</p>
+                </div>
+                <button onClick={onEndBreak} className="bg-green-600 hover:bg-green-700 font-bold py-3 px-4 rounded-lg">
+                    Volver al Trabajo
+                </button>
+            </div>
+        </div>
+    );
+};
+
 // Mi componente de Alerta para mostrar mensajes de éxito o error.
 const Alert = ({ message, type, onClose }) => {
     if (!message) return null;
@@ -3181,23 +3236,95 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
     const [modalType, setModalType] = useState('');
     const [confirmingAction, setConfirmingAction] = useState(null);
     const [showNewProjectsAlert, setShowNewProjectsAlert] = useState(true);
+    const [isOnBreak, setIsOnBreak] = useState(null);
+    const isSameDay = (date1, date2) => {
+        if (!date1 || !date2) return false;
+        return date1.getFullYear() === date2.getFullYear() &&
+               date1.getMonth() === date2.getMonth() &&
+               date1.getDate() === date2.getDate();
+    };
+
+    const breakTakenToday = isSameDay(userData?.ultimoDescanso?.toDate(), new Date());
+
+    const handleStartWork = React.useCallback(async (projectId) => {
+        const userDocRef = doc(db, "usuarios", user.uid);
+        const newActiveTask = { projectId: projectId, inicio: Timestamp.now() };
+
+        if (activeTaskInfo && activeTaskInfo.projectId) {
+            const timeLogRef = doc(collection(db, "registrosDeTiempo"));
+            await setDoc(timeLogRef, {
+                tecnicoId: user.uid,
+                projectId: activeTaskInfo.projectId,
+                fechaInicio: activeTaskInfo.inicio,
+                fechaFin: Timestamp.now(),
+            });
+        }
+        
+        const projectRef = doc(db, PROYECTOS_COLLECTION, projectId);
+        await updateDoc(projectRef, { [`tecnicosStatus.${user.uid}`]: "En Proceso" });
+        await updateDoc(userDocRef, { tareaActiva: newActiveTask });
+    }, [user, activeTaskInfo]);
+
+    const handlePauseWork = React.useCallback(async () => {
+        if (!activeTaskInfo) return;
+        const userDocRef = doc(db, "usuarios", user.uid);
+        const timeLogRef = doc(collection(db, "registrosDeTiempo"));
+        
+        await setDoc(timeLogRef, {
+            tecnicoId: user.uid,
+            projectId: activeTaskInfo.projectId,
+            fechaInicio: activeTaskInfo.inicio,
+            fechaFin: Timestamp.now(),
+        });
+
+        await updateDoc(userDocRef, { tareaActiva: deleteField() });
+    }, [user, activeTaskInfo]);
+
+    const handleEndDay = React.useCallback(async () => {
+        if (activeTaskInfo) {
+            await handlePauseWork();
+        }
+        signOut(auth);
+    }, [activeTaskInfo, handlePauseWork]);
+
+    const handleStartBreak = React.useCallback(async () => {
+        if (!activeTaskInfo) return;
+        await handlePauseWork();
+        const userDocRef = doc(db, "usuarios", user.uid);
+        await updateDoc(userDocRef, {
+            enDescanso: {
+                inicio: Timestamp.now(),
+                proyectoPausadoId: activeTaskInfo.projectId,
+            },
+            ultimoDescanso: Timestamp.now(),
+        });
+    }, [activeTaskInfo, handlePauseWork, user.uid]);
+
+   const handleEndBreak = React.useCallback(async () => {
+        if (!isOnBreak || !user?.uid) return;
+        const userDocRef = doc(db, "usuarios", user.uid);
+        await handleStartWork(isOnBreak.proyectoPausadoId);
+        await updateDoc(userDocRef, {
+            enDescanso: deleteField(),
+        });
+    }, [isOnBreak, handleStartWork, user]);
 
     useEffect(() => {
         if (!user?.uid) return;
-
         let unsubscribeProject = () => {};
-
+        
         const userDocRef = doc(db, "usuarios", user.uid);
         const unsubscribeUser = onSnapshot(userDocRef, (userDoc) => {
             unsubscribeProject();
+            const data = userDoc.data();
+            
+            setIsOnBreak(data?.enDescanso || null);
 
-            const taskData = userDoc.data()?.tareaActiva;
-
-            if (taskData && taskData.projectId) {
-                const projDocRef = doc(db, PROYECTOS_COLLECTION, taskData.projectId);
+            if (data?.tareaActiva && data.tareaActiva.projectId) {
+                const projDocRef = doc(db, PROYECTOS_COLLECTION, data.tareaActiva.projectId);
                 unsubscribeProject = onSnapshot(projDocRef, (projDoc) => {
                     setActiveTaskInfo({
-                        ...taskData,
+                        ...data.tareaActiva,
                         projectId: projDoc.id,
                         projectDetails: projDoc.exists() ? { id: projDoc.id, ...projDoc.data() } : null,
                     });
@@ -3207,12 +3334,24 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
             }
         });
 
-        return () => {
-            unsubscribeUser();
-            unsubscribeProject();
-        };
+        return () => { unsubscribeUser(); unsubscribeProject(); };
     }, [user]);
-    
+
+    useEffect(() => {
+        if (!isOnBreak) return;
+        const breakEndTime = isOnBreak.inicio.toMillis() + (75 * 60 * 1000);
+        const now = Date.now();
+        const timeUntilEnd = breakEndTime - now;
+
+        if (timeUntilEnd <= 0) {
+            handleEndBreak();
+            return;
+        }
+
+        const timerId = setTimeout(handleEndBreak, timeUntilEnd);
+        return () => clearTimeout(timerId);
+    }, [isOnBreak, handleEndBreak]);
+
     useEffect(() => {
         if (!user) return;
         setLoading(true);
@@ -3227,38 +3366,6 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
         });
         return () => unsubscribe();
     }, [user]);
-    
-    const handleStartWork = async (projectId) => {
-        const userDocRef = doc(db, "usuarios", user.uid);
-        const newActiveTask = { projectId: projectId, inicio: Timestamp.now() };
-        if (activeTaskInfo && activeTaskInfo.projectId) {
-            const timeLogRef = doc(collection(db, "registrosDeTiempo"));
-            await setDoc(timeLogRef, {
-                tecnicoId: user.uid,
-                projectId: activeTaskInfo.projectId,
-                fechaInicio: activeTaskInfo.inicio,
-                fechaFin: Timestamp.now(),
-            });
-        }
-        const projectRef = doc(db, PROYECTOS_COLLECTION, projectId);
-        await updateDoc(projectRef, { [`tecnicosStatus.${user.uid}`]: "En Proceso" });
-        await updateDoc(userDocRef, { tareaActiva: newActiveTask });
-    };
-
-    const handleEndDay = async () => {
-        if (activeTaskInfo) {
-            const userDocRef = doc(db, "usuarios", user.uid);
-            const timeLogRef = doc(collection(db, "registrosDeTiempo"));
-            await setDoc(timeLogRef, {
-                tecnicoId: user.uid,
-                projectId: activeTaskInfo.projectId,
-                fechaInicio: activeTaskInfo.inicio,
-                fechaFin: Timestamp.now(),
-            });
-            await updateDoc(userDocRef, { tareaActiva: deleteField() });
-        }
-        signOut(auth);
-    };
 
     const handleSoftFinish = async (projectId) => {
         const projectRef = doc(db, PROYECTOS_COLLECTION, projectId);
@@ -3283,6 +3390,7 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
     };
 
     const { newProjectsCount, kanbanProjects } = React.useMemo(() => {
+        if (!user?.uid) return { newProjectsCount: 0, kanbanProjects: [] }; // Guarda de seguridad
         const sorted = projects.sort((a, b) => (b.prioridad || "").localeCompare(a.prioridad || ""));
         const count = projects.filter(p => p.tecnicosStatus?.[user.uid] === "No Visto").length;
         return { newProjectsCount: count, kanbanProjects: sorted };
@@ -3384,13 +3492,11 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
                 };
 
                 if (project.fase1_fechaFinTecnico) {
-                    // Fase 2
                     updatePayload.fase2_comentariosTecnico = comments;
                     updatePayload.fase2_urlEvidencia = evidenceUrl;
                     updatePayload.fase2_numeroNotaInterna = numeroNota;
                     updatePayload.fase2_fechaFinTecnico = Timestamp.now();
                 } else {
-                    // Fase 1
                     updatePayload.fase1_comentariosTecnico = comments;
                     updatePayload.fase1_urlEvidencia = evidenceUrl;
                     updatePayload.fase1_numeroNotaInterna = numeroNota;
@@ -3447,8 +3553,8 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
                 <p className="text-xs text-gray-400 mt-2">Prioridad: <span className="font-semibold">{project.prioridad || 'N/A'}</span></p>
                 <button
                     onClick={() => handleStartWork(project.id)}
-                    disabled={isWorkingOnThis}
-                    className="w-full mt-4 bg-green-600 text-white font-bold py-2 rounded-lg disabled:bg-gray-400 hover:bg-green-700"
+                    disabled={isWorkingOnThis || isOnBreak}
+                    className="w-full mt-4 bg-green-600 text-white font-bold py-2 rounded-lg disabled:bg-gray-400 disabled:cursor-not-allowed hover:bg-green-700"
                 >
                     {buttonText}
                 </button>
@@ -3505,7 +3611,8 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
 
     return (
         <div>
-            {activeTaskInfo && <ActiveTaskBanner task={activeTaskInfo} onEndDay={handleEndDay} />}
+            {isOnBreak && <BreakBanner breakInfo={isOnBreak} onEndBreak={handleEndBreak} />}
+            {activeTaskInfo && !isOnBreak && <ActiveTaskBanner task={activeTaskInfo} onEndDay={handleEndDay} onStartBreak={handleStartBreak} breakTakenToday={breakTakenToday} />}
             
             {newProjectsCount > 0 && showNewProjectsAlert && (
                 <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-6 rounded-md shadow-md relative" role="alert">
@@ -3515,9 +3622,10 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
                 </div>
             )}
             
-            <div className="grid grid-cols-1 lg:grid-cols-[2fr,1fr] gap-8">
-                <div >
-                    <h2 className="text-xl font-bold text-gray-800 mb-4">Mi Tares Activas</h2>
+            <div className={`grid grid-cols-1 lg:grid-cols-[2fr,1fr] gap-8`}>
+                
+                <div>
+                    <h2 className="text-xl font-bold text-gray-800 mb-4">Mi Kanban de Tareas</h2>
                     {loading ? <p>Cargando...</p> : (
                         <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-4 rounded-lg">
                             {kanbanProjects.length > 0 ? (
@@ -3528,6 +3636,7 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
                         </div>
                     )}
                 </div>
+
                 <div className="sticky top-40 h-fit">
                     {activeTaskInfo ? (
                         <ActiveProjectTools project={activeTaskInfo} />
@@ -3544,7 +3653,7 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
     );
 };
 
-const ActiveTaskBanner = ({ task, onEndDay }) => {
+const ActiveTaskBanner = ({ task, onEndDay, onStartBreak, breakTakenToday }) => {
     const elapsedTime = useTimer(task.inicio);
     return (
         <div className="bg-blue-600 text-white p-4 rounded-lg shadow-lg mb-8 flex justify-between items-center sticky top-20 z-30">
@@ -3554,12 +3663,21 @@ const ActiveTaskBanner = ({ task, onEndDay }) => {
             </div>
             <div className="flex items-center space-x-6">
                 <p className="text-2xl font-mono">{elapsedTime}</p>
-                <button onClick={onEndDay} className="bg-red-600 hover:bg-red-700 font-bold py-3 px-4 rounded-lg">Finalizar Día</button>
+                <button 
+                    onClick={onStartBreak} 
+                    disabled={breakTakenToday}
+                    className="bg-green-500 hover:bg-green-600 font-bold py-3 px-4 rounded-lg disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    title={breakTakenToday ? "Ya tomaste tu descanso de hoy" : "Ir a comer"}
+                >
+                    Ir a Comer
+                </button>
+                <button onClick={onEndDay} className="bg-red-600 hover:bg-red-700 font-bold py-3 px-4 rounded-lg">
+                    Finalizar Día
+                </button>
             </div>
         </div>
     );
 };
-
 // El dashboard de Finanzas. Gestiona las facturas, cuentas por cobrar y por pagar.
 const FinanzasDashboard = ({ user, userData }) => {
     const [view, setView] = useState('dashboard');

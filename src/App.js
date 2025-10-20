@@ -1318,14 +1318,13 @@ const NewProjectForm = ({ onProjectAdded }) => {
     );
 };
 
-const ProjectsTable = ({projects, onUpdateProject, userRole, supervisorView, onManageClick, onAssignClick, onLogClick, user, userData, selectedRole}) => {
+const ProjectsTable = ({projects, onUpdateProject, userRole, supervisorView, onManageClick, onAssignClick, user, userData, selectedRole}) => {
     const [expandedRowId, setExpandedRowId] = useState(null);
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
     const [techniciansMap, setTechniciansMap] = useState({});
     const [invoicesMap, setInvoicesMap] = useState({});
     const [confirmingAction, setConfirmingAction] = useState(null);
-    
     const [searchTerm, setSearchTerm] = useState('');
 
     useEffect(() => {
@@ -1361,7 +1360,7 @@ const ProjectsTable = ({projects, onUpdateProject, userRole, supervisorView, onM
 
     const handleToggleRow = (projectId) => {
         setExpandedRowId(prevId => (prevId === projectId ? null : projectId));
-    };  
+    }; 
     
     const filteredProjects = userRole === 'administrador'
     ? projects.filter(p => (p.npu?.toLowerCase().includes(searchTerm.toLowerCase())) || (p.clienteNombre?.toLowerCase().includes(searchTerm.toLowerCase())) || (p.servicioNombre?.toLowerCase().includes(searchTerm.toLowerCase())))
@@ -1559,7 +1558,10 @@ const ProjectsTable = ({projects, onUpdateProject, userRole, supervisorView, onM
                                                                 <p><strong>Nº Proy:</strong> {project.datosEcotech?.numeroProyecto || 'N/A'}, <strong>Puntos:</strong> {project.datosEcotech?.puntosDeTrabajo || 'N/A'}, <strong>Estatus:</strong> {project.datosEcotech?.estatus || 'N/A'}</p>
                                                             </div>
                                                         )}
-                                                        <div className="col-span-3 text-right border-t pt-3 mt-2">
+                                                        <div className="col-span-full flex justify-end items-center space-x-4 border-t pt-3 mt-2">
+                                                            <button onClick={() => onAssignClick(project)} className="bg-yellow-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-yellow-600">
+                                                                Reasignar Técnico
+                                                            </button>
                                                             <button onClick={() => onManageClick(project)} className="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700">
                                                                 Gestionar
                                                             </button>
@@ -3214,7 +3216,7 @@ const SupervisorDashboard = ({ user, userData, selectedRole }) => {
                         {view === 'review' && <ReviewProjectsTable projects={reviewProjects} onUpdateProject={fetchData} />}
 
                         {processedData.projectsByTechnician[view] && (
-                            <ProjectsTable projects={processedData.projectsByTechnician[view]} userRole="supervisor" supervisorView="techDetail" onManageClick={setModalProject} {...{user, userData, selectedRole}} />
+                            <ProjectsTable projects={processedData.projectsByTechnician[view]} userRole="supervisor" supervisorView="techDetail" onManageClick={setModalProject} onAssignClick={setAssignModalProject} user={user} userData={userData} selectedRole={selectedRole} />
                         )}
                     </div>
                 </div>

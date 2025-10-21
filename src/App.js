@@ -560,19 +560,20 @@ const ProjectManagementModal = ({ project, onClose, onUpdate, user, userData, us
                             <input type="text" name="cotizacionProveedorRef" value={formData.cotizacionProveedorRef} onChange={handleChange} placeholder="Ref. Cotización Proveedor" className="w-full px-3 py-2 border rounded-md"/>
                         </>
                     )}
-
-                    <div>
-                        <label className="block text-sm font-medium mb-1">Bitácora (Solo Lectura)</label>
-                        <div className="bg-gray-50 border rounded-md p-2 h-96 overflow-y-auto space-y-2">
-                            {loadingLogs ? <p>Cargando...</p> : logEntries.length > 0 ? logEntries.map(entry => (
-                                <div key={entry.id} className="text-xs border-b pb-1">
-                                    <p className="text-gray-800 whitespace-pre-wrap">{entry.mensaje}</p>
-                                    {entry.adjuntoUrl && <a href={entry.adjuntoUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Ver adjunto</a>}
-                                    <p className="text-gray-500 mt-1 text-right">{entry.autorNombre} - {formatDate(entry.fecha)}</p>
-                                </div>
-                            )) : <p className="text-gray-500">No hay entradas.</p>}
+                    {userRole === 'supervisor' && ( 
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Bitácora (Solo Lectura)</label>
+                            <div className="bg-gray-50 border rounded-md p-2 h-96 overflow-y-auto space-y-2">
+                                {loadingLogs ? <p>Cargando...</p> : logEntries.length > 0 ? logEntries.map(entry => (
+                                    <div key={entry.id} className="text-xs border-b pb-1">
+                                        <p className="text-gray-800 whitespace-pre-wrap">{entry.mensaje}</p>
+                                        {entry.adjuntoUrl && <a href={entry.adjuntoUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Ver adjunto</a>}
+                                        <p className="text-gray-500 mt-1 text-right">{entry.autorNombre} - {formatDate(entry.fecha)}</p>
+                                    </div>
+                                )) : <p className="text-gray-500">No hay entradas.</p>}
+                            </div>
                         </div>
-                    </div>
+                    )}    
                 </div>
                 <div className="flex justify-end space-x-3 mt-6">
                     <button onClick={onClose} className="bg-gray-300 hover:bg-gray-400 font-bold py-2 px-4 rounded">Cancelar</button>
@@ -852,7 +853,166 @@ const ProjectLogModal = ({ project, user, userData, onClose, selectedRole }) => 
     );
 };
 
-// --- Componentes de Gestión (Para Administradores) ---
+// componente servicios alta y consulta para el panel del administrador
+const ServiceManagement = () => {
+    const [services, setServices] = useState([]);
+    const [newItem, setNewItem] = useState({
+        nombre: '',
+        servicioIdNumerico: '',
+        dependencia: '',
+        durationType: 'fixed',
+        totalHoras: '',
+        baseHoras: '',
+        porUnidad: '',
+        nombreUnidad: '',
+    });
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
+
+    useEffect(() => {
+        const q = query(collection(db, "servicios"));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setServices(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setLoading(false);
+        }, (err) => {
+            setError("No se pudieron cargar los servicios.");
+            setLoading(false);
+        });
+        return () => unsubscribe();
+    }, []);
+
+    const handleChange = (e) => {
+        const { name, value, type } = e.target;
+        setNewItem(prev => ({
+            ...prev,
+            [name]: type === 'radio' ? value : value
+        }));
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError('');
+        setSuccess('');
+
+        if (!newItem.nombre || !newItem.servicioIdNumerico || !newItem.dependencia) {
+            setError('Nombre, ID Numérico y Dependencia son obligatorios.');
+            return;
+        }
+
+        let calculoDuracion = {};
+        if (newItem.durationType === 'fixed') {
+            if (!newItem.totalHoras) {
+                setError('Debe especificar las horas totales para duración fija.');
+                return;
+            }
+            calculoDuracion = { totalHoras: Number(newItem.totalHoras) };
+        } else {
+            if (!newItem.baseHoras || !newItem.porUnidad || !newItem.nombreUnidad) {
+                setError('Horas base, valor por unidad y nombre de unidad son obligatorios para duración variable.');
+                return;
+            }
+            calculoDuracion = {
+                baseHoras: Number(newItem.baseHoras),
+                porUnidad: Number(newItem.porUnidad),
+                nombreUnidad: newItem.nombreUnidad,
+            };
+        }
+
+        try {
+            await addDoc(collection(db, "servicios"), {
+                nombre: newItem.nombre,
+                servicioIdNumerico: newItem.servicioIdNumerico,
+                dependencia: newItem.dependencia,
+                calculoDuracion: calculoDuracion,
+            });
+            setSuccess(`¡Servicio '${newItem.nombre}' añadido con éxito!`);
+            setNewItem({
+                nombre: '', servicioIdNumerico: '', dependencia: '', durationType: 'fixed',
+                totalHoras: '', baseHoras: '', porUnidad: '', nombreUnidad: '',
+            });
+        } catch (err) {
+            setError(`Error al añadir el servicio: ${err.message}`);
+        }
+    };
+
+    const displayDuration = (service) => {
+        const calc = service.calculoDuracion;
+        if (!calc) return 'N/A';
+        if (calc.totalHoras) {
+            return `${calc.totalHoras}h Total`;
+        }
+        if (calc.baseHoras !== undefined) {
+            return `${calc.baseHoras}h + ${calc.porUnidad}h/${calc.nombreUnidad || 'unidad'}`;
+        }
+        return 'Inválido';
+    };
+
+    return (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="bg-white p-6 rounded-xl shadow-lg border">
+                <h3 className="text-xl font-bold mb-4">Añadir Nuevo Servicio</h3>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <input type="text" name="nombre" value={newItem.nombre} onChange={handleChange} placeholder="Nombre del Servicio" className="w-full p-2 border rounded" required />
+                    <input type="text" name="servicioIdNumerico" value={newItem.servicioIdNumerico} onChange={handleChange} placeholder="ID Numérico (ej: 0001)" className="w-full p-2 border rounded" required />
+                    <input type="text" name="dependencia" value={newItem.dependencia} onChange={handleChange} placeholder="Dependencia" className="w-full p-2 border rounded" required />
+                    
+                    <fieldset className="border p-3 rounded">
+                        <legend className="text-sm font-medium">Tipo de Duración</legend>
+                        <div className="flex space-x-4">
+                            <label><input type="radio" name="durationType" value="fixed" checked={newItem.durationType === 'fixed'} onChange={handleChange} /> Fija</label>
+                            <label><input type="radio" name="durationType" value="variable" checked={newItem.durationType === 'variable'} onChange={handleChange} /> Variable</label>
+                        </div>
+                    </fieldset>
+
+                    {newItem.durationType === 'fixed' && (
+                        <input type="number" name="totalHoras" value={newItem.totalHoras} onChange={handleChange} placeholder="Horas Totales Estimadas" className="w-full p-2 border rounded" />
+                    )}
+
+                    {newItem.durationType === 'variable' && (
+                        <div className="space-y-2 border p-3 rounded bg-gray-50">
+                            <input type="number" name="baseHoras" value={newItem.baseHoras} onChange={handleChange} placeholder="Horas Base" className="w-full p-2 border rounded" />
+                            <input type="number" step="0.01" name="porUnidad" value={newItem.porUnidad} onChange={handleChange} placeholder="Horas por Unidad (ej: 0.75)" className="w-full p-2 border rounded" />
+                            <input type="text" name="nombreUnidad" value={newItem.nombreUnidad} onChange={handleChange} placeholder="Nombre de la Unidad (ej: punto, foto)" className="w-full p-2 border rounded" />
+                        </div>
+                    )}
+
+                    <Alert message={error} type="error" onClose={() => setError('')} />
+                    <Alert message={success} type="success" onClose={() => setSuccess('')} />
+                    <button type="submit" className="w-full bg-[#b0ef26] hover:bg-[#9ac91e] font-bold py-2 px-4 rounded">Añadir Servicio</button>
+                </form>
+            </div>
+
+            <div className="bg-white p-6 rounded-xl shadow-lg border">
+                <h3 className="text-xl font-bold mb-4">Servicios Existentes</h3>
+                <div className="overflow-y-auto max-h-96">
+                    <table className="min-w-full divide-y">
+                        <thead className="bg-gray-50">
+                            <tr>
+                                <th className="px-4 py-2 text-left text-xs font-medium uppercase">Nombre</th>
+                                <th className="px-4 py-2 text-left text-xs font-medium uppercase">ID Num.</th>
+                                <th className="px-4 py-2 text-left text-xs font-medium uppercase">Dependencia</th>
+                                <th className="px-4 py-2 text-left text-xs font-medium uppercase">Duración Estimada</th>
+                            </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y">
+                            {loading ? <tr><td colSpan="4">Cargando...</td></tr> : services.map(service => (
+                                <tr key={service.id}>
+                                    <td className="px-4 py-2 text-sm">{service.nombre}</td>
+                                    <td className="px-4 py-2 text-sm">{service.servicioIdNumerico}</td>
+                                    <td className="px-4 py-2 text-sm">{service.dependencia}</td>
+                                    <td className="px-4 py-2 text-sm">{displayDuration(service)}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// componente de usuarios alta para formulario en el panel del admistrador
 const UserManagement = ({ onUserAdded }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -1023,11 +1183,12 @@ const DataManagement = ({ collectionName, title, fields, placeholderTexts }) => 
 
 // -- DASHBOARDS POR ROL --
 
-// El dashboard del Administrador. Contiene las pestañas para gestionar proyectos, usuarios, servicios, proveedores y la revisión final.
-const AdminDashboard = () => {
+// El dashboard del Administrador. Contiene las pestañas para gestionar proyectos, usuarios, servicios, proveedores.
+const AdminDashboard = ({ user, userData, selectedRole }) => {
     const [view, setView] = useState('projects');
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [managedProject, setManagedProject] = useState(null);
 
     const refreshData = () => {
         setLoading(true);
@@ -1061,12 +1222,24 @@ const AdminDashboard = () => {
                 <>
                     <NewProjectForm onProjectAdded={refreshData} />
                     <h2 className="text-2xl font-bold text-gray-800 my-6">Todos los Proyectos</h2>
-                    {loading ? <p>Cargando tabla...</p> : <ProjectsTable projects={projects} onUpdateProject={refreshData} userRole="administrador" />}
+                    {loading ? <p>Cargando tabla...</p> : <ProjectsTable projects={projects} onUpdateProject={refreshData} userRole="administrador" selectedRole={selectedRole} onManageClick={setManagedProject} />}
                 </>
             )}
 
-            {view === 'services' && <DataManagement collectionName="servicios" title="Servicios" fields={['nombre', 'servicioIdNumerico', 'dependencia']} placeholderTexts={['Nombre del Servicio', 'ID Numérico (ej: 0001)', 'Dependencia']} />}
+            {view === 'services' && <ServiceManagement />}
             {view === 'providers' && <DataManagement collectionName="proveedores" title="Proveedores" fields={['nombre', 'proveedorIdNumerico']} placeholderTexts={['Nombre del Proveedor', 'ID Numérico (ej: 01)']} />}
+            
+            {managedProject && 
+                <ProjectManagementModal 
+                    project={managedProject} 
+                    onClose={() => setManagedProject(null)} 
+                    onUpdate={refreshData} 
+                    user={user} 
+                    userData={userData} 
+                    userRole="administrador" 
+                />
+            }
+
         </div>
     );
 };

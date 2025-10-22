@@ -276,8 +276,8 @@ exports.processTimeLog = onDocumentCreated("registrosDeTiempo/{logId}",
       }
     });
 /**
- * Triggers when a user's RTDB status changes. If they go offline
- * and had an active task, it pauses the task in Firestore.
+ * Se activa cuando cambia el estado de un usuario en RTDB. Si se desconecta
+ * y tenía una tarea activa, la pausa en Firestore.
  */
 exports.onUserStatusChanged =
  onValueUpdated("/status/{userId}", async (event) => {

@@ -669,7 +669,7 @@ const ActionWithReasonModal = ({ title, message, onConfirm, onCancel, confirmTex
 
 // El Header o cabecera de la página. Muestra el logo y el botón de salir.
 // También contiene el nuevo selector de roles para usuarios con más de uno.
-const Header = ({ user, userData, selectedRole, setSelectedRole }) => {
+const Header = ({ user, userData, selectedRole, setSelectedRole, isWorking }) => {
     const logoGrupoEvelsa = "https://www.grupoevelsa.com/assets/images/Logo Evelsa 2.png";
     const hasMultipleRoles = userData?.roles && userData.roles.length > 1;
     
@@ -747,7 +747,14 @@ const Header = ({ user, userData, selectedRole, setSelectedRole }) => {
                             </div>
                         )}
                         
-                        <button onClick={() => signOut(auth)} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
+                        <button
+                            onClick={() => signOut(auth)}
+                            disabled={isWorking}
+                            className={`font-bold py-2 px-4 rounded-lg transition duration-300 ${
+                                isWorking ? 'bg-gray-400 text-gray-700 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 text-white'
+                            }`}
+                            title={isWorking ? "Debes 'Finalizar Día' antes de salir" : "Cerrar sesión"}
+                        >
                             Salir
                         </button>
                     </div>
@@ -2023,8 +2030,7 @@ const ClientDashboard = ({ user, userData }) => {
     );
 };
 
- //Componente para renderizar la gráfica de Pipeline de Proyectos.
- //Recibe los datos ya procesados y listos para mostrar.
+ //Componente para renderizar la gráfica de Pipeline de Proyectos recibe los datos ya procesados y listos para mostrar.
 const PipelineChart = ({ chartData }) => {
     const data = {
         labels: chartData.labels,
@@ -3405,10 +3411,11 @@ const SupervisorDashboard = ({ user, userData, selectedRole }) => {
 
 // El dashboard del Técnico. Su lista de tareas pendientes y en proceso.
 // Desde aquí empieza a trabajar, usa la bitácora y finaliza sus tareas.
-const TecnicoDashboard = ({ user, userData, selectedRole }) => {
+const TecnicoDashboard = ({ user, userData, selectedRole, setIsWorkingState }) => {
     const [projects, setProjects] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [loadingProjects, setLoadingProjects] = useState(true);
     const [activeTaskInfo, setActiveTaskInfo] = useState(null);
+    const [loadingTask, setLoadingTask] = useState(true);
     const [modalProject, setModalProject] = useState(null);
     const [modalType, setModalType] = useState('');
     const [confirmingAction, setConfirmingAction] = useState(null);
@@ -3461,7 +3468,7 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
         if (activeTaskInfo) {
             await handlePauseWork();
         }
-        signOut(auth);
+        toast.info("Tu jornada finalizo el cronómetro se ha detenido.");
     }, [activeTaskInfo, handlePauseWork]);
 
     const handleStartBreak = React.useCallback(async () => {
@@ -3487,32 +3494,58 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
     }, [isOnBreak, handleStartWork, user]);
 
     useEffect(() => {
-        if (!user?.uid) return;
-        let unsubscribeProject = () => {};
-        
-        const userDocRef = doc(db, "usuarios", user.uid);
-        const unsubscribeUser = onSnapshot(userDocRef, (userDoc) => {
-            unsubscribeProject();
-            const data = userDoc.data();
-            
-            setIsOnBreak(data?.enDescanso || null);
+        if (!user?.uid) {
+            setLoadingTask(false);
+            setActiveTaskInfo(null);
+            setIsOnBreak(null);
+            setIsWorkingState(false);
+            return;
+        }
 
-            if (data?.tareaActiva && data.tareaActiva.projectId) {
-                const projDocRef = doc(db, PROYECTOS_COLLECTION, data.tareaActiva.projectId);
-                unsubscribeProject = onSnapshot(projDocRef, (projDoc) => {
+        setLoadingTask(true);
+        const userDocRef = doc(db, "usuarios", user.uid);
+        
+        const unsubscribeUser = onSnapshot(userDocRef, async (userDoc) => {
+            const data = userDoc.data();
+            const taskData = data?.tareaActiva;
+            const breakData = data?.enDescanso;
+            
+            setIsOnBreak(breakData || null);
+
+            if (taskData && taskData.projectId) {
+                try {
+                    const projDocRef = doc(db, PROYECTOS_COLLECTION, taskData.projectId);
+                    const projDoc = await getDoc(projDocRef);
+                    
                     setActiveTaskInfo({
-                        ...data.tareaActiva,
+                        ...taskData,
                         projectId: projDoc.id,
                         projectDetails: projDoc.exists() ? { id: projDoc.id, ...projDoc.data() } : null,
                     });
-                });
+                    setIsWorkingState(true);
+                } catch (err) {
+                    console.error("Error fetching active project details:", err);
+                    setActiveTaskInfo(null);
+                    setIsWorkingState(false);
+                }
             } else {
                 setActiveTaskInfo(null);
+                setIsWorkingState(false);
             }
+            if (breakData) {
+                 setIsWorkingState(false);
+            }
+            setLoadingTask(false);
+        }, (error) => {
+            console.error("Error listening to user document:", error);
+            setLoadingTask(false);
+            setActiveTaskInfo(null);
+            setIsOnBreak(null);
+            setIsWorkingState(false);
         });
-
-        return () => { unsubscribeUser(); unsubscribeProject(); };
-    }, [user]);
+        
+        return () => unsubscribeUser();
+    }, [user, setIsWorkingState]);
 
     useEffect(() => {
         if (!isOnBreak) return;
@@ -3530,8 +3563,12 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
     }, [isOnBreak, handleEndBreak]);
 
     useEffect(() => {
-        if (!user) return;
-        setLoading(true);
+        if (!user?.uid) {
+            setProjects([]);
+            setLoadingProjects(false);
+            return;
+        };
+        setLoadingProjects(true);
         const q = query(
             collection(db, PROYECTOS_COLLECTION),
             where("asignadoTecnicosIds", "array-contains", user.uid),
@@ -3539,7 +3576,11 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
         );
         const unsubscribe = onSnapshot(q, (snapshot) => {
             setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-            setLoading(false);
+            setLoadingProjects(false);
+        }, (error) => {
+            console.error("Error fetching technician projects:", error);
+            setProjects([]);
+            setLoadingProjects(false);
         });
         return () => unsubscribe();
     }, [user]);
@@ -3567,7 +3608,7 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
     };
 
     const { newProjectsCount, kanbanProjects } = React.useMemo(() => {
-        if (!user?.uid) return { newProjectsCount: 0, kanbanProjects: [] }; // Guarda de seguridad
+        if (!user?.uid) return { newProjectsCount: 0, kanbanProjects: [] };
         const sorted = projects.sort((a, b) => (b.prioridad || "").localeCompare(a.prioridad || ""));
         const count = projects.filter(p => p.tecnicosStatus?.[user.uid] === "No Visto").length;
         return { newProjectsCount: count, kanbanProjects: sorted };
@@ -3786,6 +3827,8 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
         </div>
     );
 
+    const isLoading = loadingProjects || loadingTask;
+
     return (
         <div>
             {isOnBreak && <BreakBanner breakInfo={isOnBreak} onEndBreak={handleEndBreak} />}
@@ -3803,7 +3846,7 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
                 
                 <div>
                     <h2 className="text-xl font-bold text-gray-800 mb-4">Mi Kanban de Tareas</h2>
-                    {loading ? <p>Cargando...</p> : (
+                    {isLoading ? <p>Cargando...</p> : (
                         <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-4 rounded-lg">
                             {kanbanProjects.length > 0 ? (
                                 kanbanProjects.map(project => <ProjectCard key={project.id} project={project} />)
@@ -3815,10 +3858,8 @@ const TecnicoDashboard = ({ user, userData, selectedRole }) => {
                 </div>
 
                 <div className="sticky top-40 h-fit">
-                    {activeTaskInfo ? (
-                        <ActiveProjectTools project={activeTaskInfo} />
-                    ) : (
-                        <WelcomePanel />
+                    {!isLoading && (
+                        activeTaskInfo ? <ActiveProjectTools project={activeTaskInfo} /> : <WelcomePanel />
                     )}
                 </div>
             </div>
@@ -4816,7 +4857,7 @@ const PracticanteDashboard = () => {
 
 // Este es el "router" principal. Recibe el rol activo del usuario
 // y decide qué dashboard específico debe mostrar.
-const Dashboard = ({ user, userData, selectedRole }) => {
+const Dashboard = ({ user, userData, selectedRole, setIsTechnicianWorking }) => {
     
     const renderDashboardByRole = () => {
         switch (selectedRole) {
@@ -4831,7 +4872,7 @@ const Dashboard = ({ user, userData, selectedRole }) => {
             case 'supervisor':
                 return <SupervisorDashboard user={user} userData={userData} selectedRole={selectedRole} />;
             case 'tecnico':
-                return <TecnicoDashboard user={user} userData={userData} selectedRole={selectedRole} />;
+                return <TecnicoDashboard user={user} userData={userData} selectedRole={selectedRole} setIsWorkingState={setIsTechnicianWorking} />;
             case 'finanzas':
                 return <FinanzasDashboard user={user} userData={userData} />;
             case 'practicante':
@@ -4894,6 +4935,7 @@ export default function App() {
     const [userData, setUserData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [selectedRole, setSelectedRole] = useState(null);
+    const [isTechnicianCurrentlyWorking, setIsTechnicianCurrentlyWorking] = useState(false);
 
     // Este efecto se ejecuta una vez para verificar si hay una sesión activa.
     useEffect(() => {
@@ -5001,10 +5043,23 @@ export default function App() {
                 draggable
                 pauseOnHover
                 />
-             <Header user={user} userData={userData} selectedRole={selectedRole} setSelectedRole={setSelectedRole}/>
-             <main>
-                 {user && userData ? <Dashboard user={user} userData={userData} selectedRole={selectedRole} /> : <AuthPage />}
-             </main>
+             <Header
+                user={user}
+                userData={userData}
+                selectedRole={selectedRole}
+                setSelectedRole={setSelectedRole}
+                isWorking={isTechnicianCurrentlyWorking} 
+            />
+            <main>
+                {user && userData ? (
+                    <Dashboard 
+                        user={user} 
+                        userData={userData} 
+                        selectedRole={selectedRole} 
+                        setIsTechnicianWorking={setIsTechnicianCurrentlyWorking} 
+                    />
+                 ) : <AuthPage />}
+            </main>
         </div>
     );
 

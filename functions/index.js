@@ -4,6 +4,7 @@ const {onDocumentCreated, onDocumentUpdated} =
  require("firebase-functions/v2/firestore");
 const {log, error} = require("firebase-functions/logger");
 const admin = require("firebase-admin");
+const {onValueUpdated} = require("firebase-functions/v2/database");
 
 admin.initializeApp();
 
@@ -274,3 +275,70 @@ exports.processTimeLog = onDocumentCreated("registrosDeTiempo/{logId}",
           projectId}:`, err);
       }
     });
+/**
+ * Triggers when a user's RTDB status changes. If they go offline
+ * and had an active task, it pauses the task in Firestore.
+ */
+exports.onUserStatusChanged =
+ onValueUpdated("/status/{userId}", async (event) => {
+   const statusData = event.data.after.val();
+   if (!statusData || statusData.state !== "offline") {
+     log(`User ${event.params.userId} is not offline. No action needed.`);
+     return;
+   }
+
+   const userFirestoreRef =
+    admin.firestore().collection("usuarios").doc(event.params.userId);
+
+   try {
+     const userDoc = await userFirestoreRef.get();
+     if (!userDoc.exists) {
+       log(`User ${event.params.userId} not found in Firestore.`);
+       return;
+     }
+
+     const userData = userDoc.data();
+     const activeTask = userData.tareaActiva;
+
+     if (activeTask && activeTask.projectId && activeTask.inicio) {
+       log(`User ${event.params.userId}
+         went offline with active task. Pausing...`);
+       const timeLogRef =
+        admin.firestore().collection("registrosDeTiempo").doc();
+       const projectRef =
+        admin.firestore().collection("proyectos_v2").doc(activeTask.projectId);
+       await timeLogRef.set({
+         tecnicoId: event.params.userId,
+         projectId: activeTask.projectId,
+         fechaInicio: activeTask.inicio,
+         fechaFin: statusData.last_changed,
+       });
+
+       const startTime = activeTask.inicio.toDate();
+       const endTime = new Date(statusData.last_changed);
+       const durationInMillis = endTime.getTime() - startTime.getTime();
+       if (durationInMillis > 0) {
+         const durationInHours = durationInMillis / (1000 * 60 * 60);
+         await projectRef.update({
+           horasRegistradas:
+            admin.firestore.FieldValue.increment(durationInHours),
+         });
+         log(`Added ${durationInHours.toFixed(2)}
+          hours to project ${activeTask.projectId} due to disconnect.`);
+       } else {
+         log(`Invalid duration calculated for project $
+          {activeTask.projectId}.`);
+       }
+       await userFirestoreRef.update({
+         tareaActiva: admin.firestore.FieldValue.delete(),
+       });
+
+       log(`Active task for user ${event.params.userId} paused successfully.`);
+     } else {
+       log(`User ${event.params.userId} went offline without an active task.`);
+     }
+   } catch (err) {
+     error(`Error processing offline status for user $
+      {event.params.userId}:`, err);
+   }
+ });

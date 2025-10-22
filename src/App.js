@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
+
 import { 
     getAuth, 
     onAuthStateChanged, 
@@ -44,6 +45,7 @@ import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, LineElement, 
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { XMLParser } from 'fast-xml-parser';
+import { getDatabase, ref as rtdbRef, onValue, set, onDisconnect, serverTimestamp } from "firebase/database";
 
 // Registro los componentes de Chart.js para poder usar las gráficas.
 ChartJS.register(
@@ -75,7 +77,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const PROYECTOS_COLLECTION = 'proyectos_v2';
 const storage = getStorage(app);
-
+const rtdb = getDatabase(app);
 
 const formatDate = (timestamp) => {
     if (!timestamp) return '---';
@@ -4951,6 +4953,36 @@ export default function App() {
         };
     }, [userData]);    
 
+    useEffect(() => {
+        if (!user?.uid || !userData || (userData.roles && !userData.roles.includes('tecnico'))) {
+            return;
+        }
+
+        const userStatusDatabaseRef = rtdbRef(rtdb, '/status/' + user.uid);
+        const isOfflineForDatabase = {
+            state: 'offline',
+            last_changed: serverTimestamp(),
+        };
+        const isOnlineForDatabase = {
+            state: 'online',
+            last_changed: serverTimestamp(),
+        };
+
+        const connectedRef = rtdbRef(rtdb, '.info/connected');
+        const unsubscribePresence = onValue(connectedRef, (snap) => {
+            if (snap.val() === true) {
+                set(userStatusDatabaseRef, isOnlineForDatabase);
+
+                onDisconnect(userStatusDatabaseRef).set(isOfflineForDatabase);
+            }
+        });
+
+        return () => {
+            unsubscribePresence();
+            set(userStatusDatabaseRef, isOfflineForDatabase);
+        };
+    }, [user, userData]);
+    
     // Muestro "Cargando..." mientras verifico la sesión.
     if (loading) {
         return <div className="min-h-screen flex items-center justify-center bg-[#cdcdcd] text-gray-700">Cargando...</div>;

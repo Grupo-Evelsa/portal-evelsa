@@ -2344,20 +2344,46 @@ const OperationalTrackingTable = ({ projects, techniciansMap }) => {
     );
 };
 
+//Tabla de cuentas por cobrar
 const FinancialTrackingTable = ({ title, invoices, getInvoiceStatusBadge }) => {
     const [statusFilter, setStatusFilter] = useState('');
+    const [monthFilter, setMonthFilter] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
-    const [itemsPerPage, setItemsPerPage] = useState(10);
+    const [itemsPerPage, setItemsPerPage] = useState(10)
 
     const { filteredInvoices, totalSum } = React.useMemo(() => {
-        const filtered = statusFilter
+        let filtered = statusFilter
             ? invoices.filter(inv => inv.estado === statusFilter)
             : invoices;
-        
-        const sum = filtered.reduce((acc, inv) => acc + (inv.monto || 0), 0);
 
+        if (monthFilter) {
+            const selectedMonth = parseInt(monthFilter, 10);
+            filtered = filtered.filter(inv => inv.fechaPromesaPago?.toDate().getMonth() === selectedMonth);
+        }
+
+        const sum = filtered.reduce((acc, inv) => acc + (inv.monto || 0), 0);
         return { filteredInvoices: filtered, totalSum: sum };
-    }, [invoices, statusFilter]);
+    }, [invoices, statusFilter, monthFilter]);
+
+    const monthOptions = React.useMemo(() => {
+        const availableMonths = new Set();
+        invoices.forEach(inv => {
+            if (inv.fechaPromesaPago?.toDate) {
+                availableMonths.add(inv.fechaPromesaPago.toDate().getMonth());
+            }
+        });
+
+        const monthNames = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+        
+        const options = Array.from(availableMonths)
+            .sort((a, b) => a - b)
+            .map(monthNumber => ({
+                value: String(monthNumber),
+                label: monthNames[monthNumber]
+            }));
+
+        return [{ value: '', label: 'Todos los Meses' }, ...options];
+    }, [invoices]);
 
     const currentItems = filteredInvoices.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
     const totalPages = Math.ceil(filteredInvoices.length / itemsPerPage);
@@ -2366,22 +2392,20 @@ const FinancialTrackingTable = ({ title, invoices, getInvoiceStatusBadge }) => {
     return (
         <div>
             <h2 className="text-xl font-bold text-gray-800 mb-4">{title}</h2>
-
             <div className="mb-4 flex justify-between items-center">
-                <div>
-                    <label htmlFor={`${title}-status-filter`} className="text-sm font-medium mr-2">Filtrar por Estado:</label>
-                    <select
-                        id={`${title}-status-filter`}
-                        value={statusFilter}
-                        onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
-                        className="border-gray-300 rounded-md p-2 text-sm"
-                    >
+                <div className="flex items-center space-x-2">
+                    <label htmlFor={`${title}-status-filter`} className="text-sm font-medium">Estado:</label>
+                    <select id={`${title}-status-filter`} value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }} className="border-gray-300 rounded-md p-2 text-sm">
                         <option value="">Todos</option>
-                        <option value="Pend. de Autorización">Pend. de Autorización</option>
+                        <option value="Pend. de Autorización">Pend. Autorización</option>
                         <option value="Prog. a Pago">Prog. a Pago</option>
                         <option value="Vencida">Vencida</option>
-                        <option value="Pagada">Pagada</option>
-                        <option value="Cancelada">Cancelada</option>
+                    </select>
+                </div>
+                <div className="flex items-center space-x-2">
+                    <label htmlFor={`${title}-month-filter`} className="text-sm font-medium">Mes Pago Prog.:</label>
+                    <select id={`${title}-month-filter`} value={monthFilter} onChange={(e) => { setMonthFilter(e.target.value); setCurrentPage(1); }} className="border-gray-300 rounded-md p-2 text-sm">
+                        {monthOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                     </select>
                 </div>
                  <div className="flex items-center">
@@ -2400,6 +2424,7 @@ const FinancialTrackingTable = ({ title, invoices, getInvoiceStatusBadge }) => {
                         <tr>
                             <th className="px-4 py-2 text-left text-xs font-medium uppercase">Estado</th>
                             <th className="px-4 py-2 text-left text-xs font-medium uppercase">Monto</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium uppercase">Fecha Prog. Pago</th>
                             <th className="px-4 py-2 text-left text-xs font-medium uppercase">Planta</th>
                             <th className="px-4 py-2 text-left text-xs font-medium uppercase">Servicio</th>
                             <th className="px-4 py-2 text-left text-xs font-medium uppercase">Factura</th>
@@ -2410,6 +2435,7 @@ const FinancialTrackingTable = ({ title, invoices, getInvoiceStatusBadge }) => {
                             <tr key={inv.id}>
                                 <td className="px-4 py-2">{getInvoiceStatusBadge(inv.estado)}</td>
                                 <td className="px-4 py-2 font-semibold text-gray-900">${(inv.monto || 0).toFixed(2)}</td>
+                                <td className="px-4 py-2">{formatDate(inv.fechaPromesaPago)}</td>
                                 <td className="px-4 py-2">{inv.planta || 'N/A'}</td>
                                 <td className="px-4 py-2">{inv.servicio || 'General'}</td>
                                 <td className="px-4 py-2">{inv.folio}</td>
@@ -2418,7 +2444,7 @@ const FinancialTrackingTable = ({ title, invoices, getInvoiceStatusBadge }) => {
                     </tbody>
                     <tfoot className="bg-gray-100">
                         <tr>
-                            <td className="px-4 py-3 font-bold text-right">Total Filtrado:</td>
+                            <td className="px-4 py-3 font-bold text-right">Total:</td>
                             <td className="px-4 py-3 font-bold text-lg text-gray-900" colSpan="4">${totalSum.toFixed(2)}</td>
                         </tr>
                     </tfoot>
@@ -2540,11 +2566,10 @@ const AccountsPayableDirectiveTable = ({ invoices, projectsMap }) => {
                             </tr>
                         ))}
                     </tbody>
-                    <tfoot className="bg-gray-100 border-t-2 border-gray-300">
+                    <tfoot className="bg-gray-100">
                         <tr>
-                            <td className="px-4 py-3 font-bold text-right text-sm" colSpan="2">Total:</td>
-                            <td className="px-4 py-3 font-bold text-lg text-gray-900">${totalSum.toFixed(2)}</td>
-                            <td colSpan="3"></td>
+                            <td className="px-4 py-3 font-bold text-right">Total:</td>
+                            <td className="px-4 py-3 font-bold text-lg text-gray-900" colSpan="4">${totalSum.toFixed(2)}</td>
                         </tr>
                     </tfoot>
                 </table>
@@ -2740,8 +2765,8 @@ const DirectivoDashboard = () => {
             today.setHours(0, 0, 0, 0);
 
             return invoices
-                .filter(inv => inv.tipo === invoiceType)
-                .map(inv => {
+                .filter(inv => inv.tipo === invoiceType && inv.estado !== 'Pagada' && inv.estado !== 'Cancelada')
+            .map(inv => {
                     const project = (inv.proyectoId && inv.proyectoId !== 'general')
                         ? projectsMap.get(inv.proyectoId)
                         : null;
@@ -2933,7 +2958,7 @@ const DirectivoDashboard = () => {
 
             {view === 'cobrar' && dashboardData && (
                 <FinancialTrackingTable
-                    title="Cuentas por Cobrar (Todas)"
+                    title="Cuentas por Cobrar"
                     invoices={dashboardData.accountsReceivableList}
                     getInvoiceStatusBadge={getInvoiceStatusBadge}
                 />

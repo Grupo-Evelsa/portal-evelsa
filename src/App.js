@@ -2435,6 +2435,131 @@ const FinancialTrackingTable = ({ title, invoices, getInvoiceStatusBadge }) => {
     );
 };
 
+//Tabla de cuentas por pagar
+const AccountsPayableDirectiveTable = ({ invoices, projectsMap }) => {
+    const [providerFilter, setProviderFilter] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(10);
+
+    const { processedInvoices, totalSum } = React.useMemo(() => {
+        const activeInvoices = invoices.filter(inv =>
+            inv.estado === 'Pend. de Autorización' || inv.estado === 'Prog. a Pago' || inv.estado === 'Vencida'
+        );
+
+        const filteredByProvider = providerFilter
+            ? activeInvoices.filter(inv => inv.proveedorNombre === providerFilter)
+            : activeInvoices;
+
+        const sum = filteredByProvider.reduce((acc, inv) => acc + (inv.monto || 0), 0);
+
+        const finalInvoices = filteredByProvider.map(inv => {
+            let projectBillingStatus = 'N/A';
+            if (inv.proyectoId && inv.proyectoId !== 'general') {
+                const project = projectsMap.get(inv.proyectoId);
+                projectBillingStatus = (project && project.facturasClienteIds && project.facturasClienteIds.length > 0)
+                    ? 'Facturado'
+                    : 'No Facturado';
+            }
+            return { ...inv, projectBillingStatus };
+        });
+
+        return { processedInvoices: finalInvoices, totalSum: sum };
+    }, [invoices, providerFilter, projectsMap]);
+
+    const currentItems = processedInvoices.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+    const totalPages = Math.ceil(processedInvoices.length / itemsPerPage);
+    const paginate = (pageNumber) => setCurrentPage(pageNumber);
+
+    const providers = [...new Set(invoices.map(inv => inv.proveedorNombre))].sort();
+
+    const getInvoiceStatusBadge = (status) => {
+        const styles = {
+            'Prog. a Pago': 'bg-blue-100 text-blue-800',
+            'Pend. de Autorización': 'bg-yellow-100 text-yellow-800',
+            'Vencida': 'bg-red-100 text-yellow-800',
+        };
+        return <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${styles[status] || 'bg-gray-100'}`}>{status}</span>;
+    };
+     const getProjectBillingStatusBadge = (status) => {
+        const styles = {
+            'Facturado': 'bg-green-100 text-green-800',
+            'No Facturado': 'bg-red-100 text-red-800',
+            'N/A': 'bg-gray-100 text-gray-700',
+        };
+        return <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${styles[status] || 'bg-gray-100'}`}>{status}</span>;
+    };
+
+
+    return (
+        <div>
+            <h2 className="text-xl font-bold text-gray-800 mb-4">Cuentas por Pagar</h2>
+            <div className="mb-4 flex justify-between items-center">
+                <div>
+                    <label htmlFor="provider-filter" className="text-sm font-medium mr-2">Filtrar por Proveedor:</label>
+                    <select
+                        id="provider-filter"
+                        value={providerFilter}
+                        onChange={(e) => { setProviderFilter(e.target.value); setCurrentPage(1); }}
+                        className="border-gray-300 rounded-md p-2 text-sm"
+                    >
+                        <option value="">Todos</option>
+                        {providers.map(prov => <option key={prov} value={prov}>{prov}</option>)}
+                    </select>
+                </div>
+                 <div className="flex items-center">
+                    <span className="text-sm mr-2">Mostrar:</span>
+                    <select value={itemsPerPage} onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }} className="px-2 py-1 border border-gray-300 rounded-md">
+                        <option value={10}>10</option>
+                        <option value={15}>15</option>
+                        <option value={25}>25</option>
+                    </select>
+                </div>
+            </div>
+
+            <div className="overflow-x-auto bg-white rounded-lg shadow">
+                <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                        <tr>
+                            <th className="px-4 py-2 text-left text-xs font-medium">Factura</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium">Proveedor</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium">Monto</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium">Fecha Prog. Pago</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium">Estatus</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium">Estatus Cobro</th>
+                        </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                        {currentItems.map(inv => (
+                            <tr key={inv.id}>
+                                <td className="px-4 py-2">{inv.folio}</td>
+                                <td className="px-4 py-2">{inv.proveedorNombre || 'N/A'}</td>
+                                <td className="px-4 py-2 font-semibold text-gray-900">${(inv.monto || 0).toFixed(2)}</td>
+                                <td className="px-4 py-2">{formatDate(inv.fechaPromesaPago)}</td>
+                                <td className="px-4 py-2">{getInvoiceStatusBadge(inv.estado)}</td>
+                                <td className="px-4 py-2">{getProjectBillingStatusBadge(inv.projectBillingStatus)}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                    <tfoot className="bg-gray-100 border-t-2 border-gray-300">
+                        <tr>
+                            <td className="px-4 py-3 font-bold text-right text-sm" colSpan="2">Total:</td>
+                            <td className="px-4 py-3 font-bold text-lg text-gray-900">${totalSum.toFixed(2)}</td>
+                            <td colSpan="3"></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+            <div className="mt-4 flex justify-between items-center">
+                <span className="text-sm text-gray-700">Página {currentPage} de {totalPages}</span>
+                <div>
+                    <button onClick={() => paginate(currentPage - 1)} disabled={currentPage === 1} className="px-3 py-1 border rounded-md bg-white mr-2 disabled:opacity-50">Anterior</button>
+                    <button onClick={() => paginate(currentPage + 1)} disabled={currentPage === totalPages || totalPages === 0} className="px-3 py-1 border rounded-md bg-white disabled:opacity-50">Siguiente</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // El dashboard Directivo. Muestra las gráficas y KPIs
 // sobre la salud del negocio que construimos.
 const DirectivoDashboard = () => {
@@ -2445,13 +2570,11 @@ const DirectivoDashboard = () => {
     const [opSortBy, setOpSortBy] = useState('sortOrder');
     const [opSortOrder, setOpSortOrder] = useState('asc');
 
-
     /**
      * @param {Array} projects
      * @param {Array} invoices
      * @returns {Object}
      */
-
 
     const processDataForDashboard = (projects, invoices, technicians, sortBy, sortOrder) => {
         const currentYear = new Date().getFullYear();
@@ -2645,7 +2768,11 @@ const DirectivoDashboard = () => {
                         servicio: project?.servicioNombre || inv.descripcion || 'Gasto General',
                     };
                 })
-                .sort((a, b) => b.fechaEmision.toDate() - a.fechaEmision.toDate());
+                .sort((a, b) => {
+                    const dateA = a.fechaPromesaPago?.toDate() || new Date('2999-12-31');
+                    const dateB = b.fechaPromesaPago?.toDate() || new Date('2999-12-31');
+                    return dateA - dateB;
+                });
         };
         
         const accountsReceivableList = processInvoices('cliente');
@@ -2660,7 +2787,8 @@ const DirectivoDashboard = () => {
             operationalProjects,
             techniciansMap,
             accountsReceivableList,
-            accountsPayableList
+            accountsPayableList,
+            projectsMap
         };
     };
 
@@ -2717,7 +2845,7 @@ const DirectivoDashboard = () => {
     return (
         <div className="space-y-8">
             <div>
-                <h1 className="text-3xl font-bold text-gray-900">Dashboard Directivo</h1>
+                <h1 className="text-3xl font-bold text-gray-900">Dashboard Directivos</h1>
                 <p className="text-gray-600">Vista general de la salud y rendimiento del negocio.</p>
             </div>
             <div className="mb-6 border-b border-gray-200">
@@ -2728,9 +2856,8 @@ const DirectivoDashboard = () => {
                     <button onClick={() => setView('operativo')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'operativo' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>
                         Seguimiento Operativo
                     </button>
-                    <button onClick={() => setView('financiero')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'financiero' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>
-                        Seguimiento Financiero
-                    </button>
+                    <button onClick={() => setView('cobrar')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'cobrar' ? 'border-blue-500' : 'border-transparent text-gray-500'}`}>Cuentas por Cobrar</button>
+                    <button onClick={() => setView('pagar')} className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${view === 'pagar' ? 'border-blue-500' : 'border-transparent text-gray-500'}`}>Cuentas por Pagar</button>
                 </nav>
             </div>
 
@@ -2804,21 +2931,18 @@ const DirectivoDashboard = () => {
                 </div>    
             )}
 
-            {view === 'financiero' && dashboardData && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    {/* Tabla Cuentas por Cobrar */}
-                    <FinancialTrackingTable
-                        title="Cuentas por Cobrar"
-                        invoices={dashboardData.accountsReceivableList}
-                        getInvoiceStatusBadge={getInvoiceStatusBadge}
-                    />
-                    {/* Tabla Cuentas por Pagar */}
-                    <FinancialTrackingTable
-                        title="Cuentas por Pagar"
-                        invoices={dashboardData.accountsPayableList}
-                        getInvoiceStatusBadge={getInvoiceStatusBadge}
-                    />
-                </div>
+            {view === 'cobrar' && dashboardData && (
+                <FinancialTrackingTable
+                    title="Cuentas por Cobrar (Todas)"
+                    invoices={dashboardData.accountsReceivableList}
+                    getInvoiceStatusBadge={getInvoiceStatusBadge}
+                />
+            )}
+            {view === 'pagar' && dashboardData && (
+                <AccountsPayableDirectiveTable
+                    invoices={dashboardData.accountsPayableList}
+                    projectsMap={dashboardData.projectsMap}
+                />
             )}
         </div>
     );

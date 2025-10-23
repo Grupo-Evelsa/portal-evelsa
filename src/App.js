@@ -2266,38 +2266,77 @@ const StatusBadge = ({ status }) => {
     );
 };
 
-// Componente que para crear la tabla de proyectos activos, con la metrica de los proyectos entregados pendientes, etc
-const OperationalTrackingTable = ({ projects, techniciansMap }) => {
-    const [searchTerm, setSearchTerm] = useState('');
+// Componente que para crear la tabla de proyectos activos y entregados, permite entregar reporte mensual
+const OperationalReportTable = ({ projects, techniciansMap }) => {
+    const [reportType, setReportType] = useState('delivered');
+    const currentMonth = new Date().getMonth();
+    const currentYear = new Date().getFullYear();
+    const [selectedMonth, setSelectedMonth] = useState(String(currentMonth));
+    const [selectedYear, setSelectedYear] = useState(currentYear);
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
 
-    const filteredProjects = projects.filter(p =>
-        (p.npu && p.npu.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (p.clienteNombre && p.clienteNombre.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (p.servicioNombre && p.servicioNombre.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (techniciansMap[p.asignadoTecnicosIds?.[0]] && techniciansMap[p.asignadoTecnicosIds?.[0]].toLowerCase().includes(searchTerm.toLowerCase()))
-    );
+    const { filteredProjects, totalSum } = React.useMemo(() => {
+        let filtered = [];
+        if (reportType === 'delivered') {
+            filtered = projects.filter(p => {
+                const deliveryDate = p.fase2_fechaNotaInterna || p.fase1_fechaNotaInterna;
+                return deliveryDate?.toDate().getMonth() === parseInt(selectedMonth, 10) &&
+                       deliveryDate?.toDate().getFullYear() === selectedYear;
+            });
+        } else {
+            filtered = projects.filter(p =>
+                p.estado === 'Activo' &&
+                !p.fechaFinTecnicoReal &&
+                p.fechaEntregaInterna?.toDate().getMonth() === parseInt(selectedMonth, 10) &&
+                p.fechaEntregaInterna?.toDate().getFullYear() === selectedYear
+            );
+        }
+        
+        const sum = filtered.reduce((acc, p) => acc + (p.precioCotizacionCliente || 0), 0);
+        
+        filtered.sort((a, b) => {
+            const dateA = (reportType === 'delivered' ? (a.fase2_fechaNotaInterna || a.fase1_fechaNotaInterna) : a.fechaEntregaInterna)?.toDate() || 0;
+            const dateB = (reportType === 'delivered' ? (b.fase2_fechaNotaInterna || b.fase1_fechaNotaInterna) : b.fechaEntregaInterna)?.toDate() || 0;
+            return dateB - dateA;
+        });
+
+        return { filteredProjects: filtered, totalSum: sum };
+    }, [projects, reportType, selectedMonth, selectedYear]);
 
     const currentItems = filteredProjects.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
     const totalPages = Math.ceil(filteredProjects.length / itemsPerPage);
     const paginate = (pageNumber) => setCurrentPage(pageNumber);
 
+    const monthNames = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+    const yearOptions = Array.from({ length: 5 }, (_, i) => currentYear - i);
+
     return (
-        <div className="mt-6">
-            <div className="mb-4 flex flex-col md:flex-row justify-between items-center">
-                <input
-                    type="text"
-                    placeholder="Buscar por NPU, cliente, servicio o técnico..."
-                    className="w-full md:w-1/3 px-3 py-2 border border-gray-300 rounded-md mb-2 md:mb-0"
-                    onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-                />
-                <div className="flex items-center">
-                    <span className="text-sm mr-2">Mostrar:</span>
+        <div>
+            <div className="mb-4 p-4 bg-gray-50 rounded-lg border flex flex-wrap items-center gap-x-6 gap-y-4">
+                <div className="flex items-center space-x-2">
+                    <label className="text-sm font-medium">Ver:</label>
+                    <select value={reportType} onChange={e => { setReportType(e.target.value); setCurrentPage(1); }} className="border-gray-300 rounded-md p-2 text-sm">
+                        <option value="delivered">Entregados en</option>
+                        <option value="pending">Pendientes para</option>
+                    </select>
+                </div>
+                <div className="flex items-center space-x-2">
+                    <label className="text-sm font-medium">Mes:</label>
+                    <select value={selectedMonth} onChange={e => { setSelectedMonth(e.target.value); setCurrentPage(1); }} className="border-gray-300 rounded-md p-2 text-sm">
+                        {monthNames.map((name, index) => <option key={index} value={String(index)}>{name}</option>)}
+                    </select>
+                </div>
+                 <div className="flex items-center space-x-2">
+                    <label className="text-sm font-medium">Año:</label>
+                    <select value={selectedYear} onChange={e => { setSelectedYear(parseInt(e.target.value, 10)); setCurrentPage(1); }} className="border-gray-300 rounded-md p-2 text-sm">
+                         {yearOptions.map(year => <option key={year} value={year}>{year}</option>)}
+                    </select>
+                </div>
+                 <div className="flex items-center space-x-2 ml-auto">
+                    <span className="text-sm">Mostrar:</span>
                     <select value={itemsPerPage} onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }} className="px-2 py-1 border border-gray-300 rounded-md">
-                        <option value={10}>10</option>
-                        <option value={15}>15</option>
-                        <option value={25}>25</option>
+                        <option value={10}>10</option><option value={15}>15</option><option value={25}>25</option>
                     </select>
                 </div>
             </div>
@@ -2306,35 +2345,35 @@ const OperationalTrackingTable = ({ projects, techniciansMap }) => {
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                         <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Planta/Ubicación</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Técnico</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Asignación</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Límite</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notas del Supervisor</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium uppercase">Cliente</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium uppercase">Proyecto</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium uppercase">Monto</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium uppercase">Responsable</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium uppercase">{reportType === 'delivered' ? 'Nota Entrega' : 'Fecha Límite'}</th>
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                        {currentItems.map(project => (
-                            <tr key={project.id}>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm"><StatusBadge status={project.status} /></td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-800">{project.ubicacionCliente || project.clienteNombre}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{project.servicioNombre}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{techniciansMap[project.asignadoTecnicosIds?.[0]] || 'No asignado'}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{formatDate(project.fechaAsignacionTecnico)}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{formatDate(project.fechaEntregaInterna)}</td>
-                                <td className="px-6 py-4 text-sm text-gray-600" title={project.notasSupervisor}>
-                                    <p className="w-48 truncate">{project.notasSupervisor || '---'}</p>
-                                </td>
+                        {currentItems.map(p => (
+                            <tr key={p.id}>
+                                <td className="px-4 py-2">{p.clienteNombre}</td>
+                                <td className="px-4 py-2">{p.servicioNombre}</td>
+                                <td className="px-4 py-2 font-semibold">${(p.precioCotizacionCliente || 0).toFixed(2)}</td>
+                                <td className="px-4 py-2">{p.responsableNombre}</td>
+                                <td className="px-4 py-2">{reportType === 'delivered' ? p.notaEntregaNumero : formatDate(p.fechaEntregaInterna)}</td>
                             </tr>
                         ))}
                     </tbody>
+                    <tfoot className="bg-gray-100 border-t-2">
+                        <tr>
+                            <td className="px-4 py-3 font-bold text-right text-sm" colSpan="2">Total {reportType === 'delivered' ? 'Entregado' : 'Pendiente'} ({monthNames[selectedMonth]} {selectedYear}):</td>
+                            <td className="px-4 py-3 font-bold text-lg text-gray-900">${totalSum.toFixed(2)}</td>
+                            <td colSpan="2"></td>
+                        </tr>
+                    </tfoot>
                 </table>
             </div>
-
             <div className="mt-4 flex justify-between items-center">
-                <span className="text-sm text-gray-700">Página {currentPage} de {totalPages}</span>
+                 <span className="text-sm text-gray-700">Página {currentPage} de {totalPages}</span>
                 <div>
                     <button onClick={() => paginate(currentPage - 1)} disabled={currentPage === 1} className="px-3 py-1 border rounded-md bg-white mr-2 disabled:opacity-50">Anterior</button>
                     <button onClick={() => paginate(currentPage + 1)} disabled={currentPage === totalPages || totalPages === 0} className="px-3 py-1 border rounded-md bg-white disabled:opacity-50">Siguiente</button>
@@ -2344,7 +2383,7 @@ const OperationalTrackingTable = ({ projects, techniciansMap }) => {
     );
 };
 
-//Tabla de cuentas por cobrar
+// Componente que para crear la tabla de cuentas por cobrar
 const FinancialTrackingTable = ({ title, invoices, getInvoiceStatusBadge }) => {
     const [statusFilter, setStatusFilter] = useState('');
     const [monthFilter, setMonthFilter] = useState('');
@@ -2461,7 +2500,7 @@ const FinancialTrackingTable = ({ title, invoices, getInvoiceStatusBadge }) => {
     );
 };
 
-//Tabla de cuentas por pagar
+// Componente que para crear la tabla de cuentas por pagar
 const AccountsPayableDirectiveTable = ({ invoices, projectsMap }) => {
     const [providerFilter, setProviderFilter] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
@@ -2592,8 +2631,6 @@ const DirectivoDashboard = () => {
     const [error, setError] = useState('');
     const [dashboardData, setDashboardData] = useState(null);
     const [view, setView] = useState('kpis');
-    const [opSortBy, setOpSortBy] = useState('sortOrder');
-    const [opSortOrder, setOpSortOrder] = useState('asc');
 
     /**
      * @param {Array} projects
@@ -2601,7 +2638,7 @@ const DirectivoDashboard = () => {
      * @returns {Object}
      */
 
-    const processDataForDashboard = (projects, invoices, technicians, sortBy, sortOrder) => {
+    const processDataForDashboard = (projects, invoices, technicians) => {
         const currentYear = new Date().getFullYear();
         const currentMonth = new Date().getMonth();
         const labels = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -2715,50 +2752,22 @@ const DirectivoDashboard = () => {
 
         today.setHours(0, 0, 0, 0);
 
-        const activeProjects = projects.filter(p => p.estado === "Activo");
-
-        const operationalProjects = activeProjects.map(p => {
-            let status = 'A Tiempo';
-            let sortOrder = 3;
-            const dueDate = p.fechaEntregaInterna?.toDate();
-
-            if (!dueDate) {
-                status = 'Sin Fecha';
-                sortOrder = 4;
-            } else {
-                dueDate.setHours(0, 0, 0, 0);
-                const diffDays = (dueDate - today) / (1000 * 60 * 60 * 24);
-                if (diffDays < 0) {
-                    status = 'Atrasado';
-                    sortOrder = 1;
-                } else if (diffDays <= 3) {
-                    status = 'Por Vencer';
-                    sortOrder = 2;
-                }
-            }
-            return { ...p, status, sortOrder };
-        });
-
-        operationalProjects.sort((a, b) => {
-            let fieldA = a[sortBy];
-            let fieldB = b[sortBy];
-
-            if (sortBy.includes('fecha')) {
-                fieldA = a[sortBy]?.toDate() || (sortOrder === 'asc' ? new Date('2999-12-31') : new Date(0));
-                fieldB = b[sortBy]?.toDate() || (sortOrder === 'asc' ? new Date('2999-12-31') : new Date(0));
-            }
-
-            if (fieldA < fieldB) return sortOrder === 'asc' ? -1 : 1;
-            if (fieldA > fieldB) return sortOrder === 'asc' ? 1 : -1;
-            return 0;
-        });
-
         const techniciansMap = {};
         technicians.forEach(t => {
             techniciansMap[t.id] = t.nombreCompleto;
         });
 
         const projectsMap = new Map(projects.map(p => [p.id, p]));
+        
+        const allOperationalProjects = projects.map(p => {
+            const responsableId = p.asignadoTecnicosIds?.[0];
+            return {
+                ...p,
+                responsableNombre: techniciansMap[responsableId] || 'No Asignado',
+                notaEntregaNumero: p.fase2_numeroNotaInterna || p.fase1_numeroNotaInterna || 'N/A',
+                fechaEntregaReal: p.fechaFinTecnicoReal || null,
+            };
+        });
 
         const processInvoices = (invoiceType) => {
             const today = new Date();
@@ -2809,7 +2818,7 @@ const DirectivoDashboard = () => {
             accountsReceivable: { labels, totalFacturadoData: monthlyARData.map(m => m.totalFacturado), pagadoData: monthlyARData.map(m => m.pagado), programadoData: monthlyARData.map(m => m.programado), venceHoyData: monthlyARData.map(m => m.venceHoy), vencidoData: monthlyARData.map(m => m.vencido), pdteProgramacionData: monthlyARData.map(m => m.pdteProgramacion) },
             cashFlow: { labels: weeklyLabels, ingresosData: weeklyCashFlowData.map(w => w.ingresos), egresosData: weeklyCashFlowData.map(w => w.egresos) },
             technicianProductivity: { labels: Object.values(techProductivity).map(t => t.name), completedData: Object.values(techProductivity).map(t => t.completed) },
-            operationalProjects,
+            allOperationalProjects,
             techniciansMap,
             accountsReceivableList,
             accountsPayableList,
@@ -2834,7 +2843,7 @@ const DirectivoDashboard = () => {
                 const allInvoices = invoicesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 const allTechnicians = techniciansSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 
-                const processedData = processDataForDashboard(allProjects, allInvoices, allTechnicians, opSortBy, opSortOrder);
+                const processedData = processDataForDashboard(allProjects, allInvoices, allTechnicians);
                 setDashboardData(processedData);
 
             } catch (err) {
@@ -2846,7 +2855,7 @@ const DirectivoDashboard = () => {
         };
 
         fetchData();
-    }, [opSortBy, opSortOrder]);
+    }, []);
 
     if (loading) {
         return <div className="text-center py-10">Calculando métricas... ⚙️</div>;
@@ -2926,34 +2935,11 @@ const DirectivoDashboard = () => {
                 </>
             )}
 
-            {view === 'operativo' && (
-                <div>
-                    <div className="flex justify-between items-center">
-                        <div>
-                            <h2 className="text-2xl font-bold text-gray-800">Proyectos Activos y Pendientes de Entrega</h2>
-                            <p className="text-gray-600 mt-1">Lista ordenada de los proyectos en curso.</p>
-                        </div>
-                        <div className="flex items-center space-x-4">
-                            <label className="text-sm font-medium">Ordenar por:</label>
-                            <select value={opSortBy} onChange={e => setOpSortBy(e.target.value)} className="border-gray-300 rounded-md p-2 text-sm">
-                                <option value="sortOrder">Criticidad</option>
-                                <option value="fechaEntregaInterna">Fecha Límite</option>
-                                <option value="fechaAsignacionTecnico">Fecha de Asignación</option>
-                            </select>
-                            <button onClick={() => setOpSortOrder(opSortOrder === 'asc' ? 'desc' : 'asc')} className="p-2 border rounded-md text-sm bg-white shadow-sm">
-                                {opSortOrder === 'asc' ? 'Ascendente ↑' : 'Descendente ↓'}
-                            </button>
-                        </div>
-                    </div>
-                    <div>
-                        {dashboardData?.operationalProjects && (
-                            <OperationalTrackingTable
-                                projects={dashboardData.operationalProjects}
-                                techniciansMap={dashboardData.techniciansMap}
-                            />
-                        )}
-                    </div>
-                </div>    
+            {view === 'operativo' && dashboardData && (
+                <OperationalReportTable
+                    projects={dashboardData.allOperationalProjects}
+                    techniciansMap={dashboardData.techniciansMap}
+                />
             )}
 
             {view === 'cobrar' && dashboardData && (
@@ -3838,7 +3824,7 @@ const TecnicoDashboard = ({ user, userData, selectedRole, setIsWorkingState }) =
             pdfDoc.save(`Nota_Entrega_${numeroNota}.pdf`);
             return { numeroNota };
         };
-
+        
         const handleCompleteTask = async () => {
             if (!evidenceFile) {
                 setError("Es obligatorio subir el archivo PDF de evidencia.");
@@ -3858,20 +3844,24 @@ const TecnicoDashboard = ({ user, userData, selectedRole, setIsWorkingState }) =
                     estado: 'Terminado Internamente',
                 };
 
+                const now = Timestamp.now();
+
                 if (project.fase1_fechaFinTecnico) {
                     updatePayload.fase2_comentariosTecnico = comments;
                     updatePayload.fase2_urlEvidencia = evidenceUrl;
                     updatePayload.fase2_numeroNotaInterna = numeroNota;
-                    updatePayload.fase2_fechaFinTecnico = Timestamp.now();
+                    updatePayload.fase2_fechaFinTecnico = now;
+                    updatePayload.fase2_fechaNotaInterna = now;
                 } else {
                     updatePayload.fase1_comentariosTecnico = comments;
                     updatePayload.fase1_urlEvidencia = evidenceUrl;
                     updatePayload.fase1_numeroNotaInterna = numeroNota;
-                    updatePayload.fase1_fechaFinTecnico = Timestamp.now();
+                    updatePayload.fase1_fechaFinTecnico = now;
+                    updatePayload.fase1_fechaNotaInterna = now;
                 }
                 
                 if (!project.fechaFinTecnicoReal) {
-                    updatePayload.fechaFinTecnicoReal = Timestamp.now();
+                    updatePayload.fechaFinTecnicoReal = now;
                 }
                 
                 await updateDoc(projectRef, updatePayload);
@@ -3884,7 +3874,7 @@ const TecnicoDashboard = ({ user, userData, selectedRole, setIsWorkingState }) =
                 setLoading(false);
             }
         };
-
+       
         return (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
                 <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg">

@@ -2280,7 +2280,7 @@ const OperationalReportTable = ({ projects, techniciansMap }) => {
         let filtered = [];
         if (reportType === 'delivered') {
             filtered = projects.filter(p => {
-                const deliveryDate = p.fase2_fechaNotaInterna || p.fase1_fechaNotaInterna;
+                const deliveryDate = p.fase2_fechaFinTecnico || p.fase1_fechaFinTecnico;
                 return deliveryDate?.toDate().getMonth() === parseInt(selectedMonth, 10) &&
                        deliveryDate?.toDate().getFullYear() === selectedYear;
             });
@@ -2296,8 +2296,8 @@ const OperationalReportTable = ({ projects, techniciansMap }) => {
         const sum = filtered.reduce((acc, p) => acc + (p.precioCotizacionCliente || 0), 0);
         
         filtered.sort((a, b) => {
-            const dateA = (reportType === 'delivered' ? (a.fase2_fechaNotaInterna || a.fase1_fechaNotaInterna) : a.fechaEntregaInterna)?.toDate() || 0;
-            const dateB = (reportType === 'delivered' ? (b.fase2_fechaNotaInterna || b.fase1_fechaNotaInterna) : b.fechaEntregaInterna)?.toDate() || 0;
+            const dateA = (reportType === 'delivered' ? (a.fase2_fechaFinTecnico || a.fase1_fechaFinTecnico) : a.fechaEntregaInterna)?.toDate() || 0;
+            const dateB = (reportType === 'delivered' ? (b.fase2_fechaFinTecnico || b.fase1_fechaFinTecnico) : b.fechaEntregaInterna)?.toDate() || 0;
             return dateB - dateA;
         });
 
@@ -3851,13 +3851,11 @@ const TecnicoDashboard = ({ user, userData, selectedRole, setIsWorkingState }) =
                     updatePayload.fase2_urlEvidencia = evidenceUrl;
                     updatePayload.fase2_numeroNotaInterna = numeroNota;
                     updatePayload.fase2_fechaFinTecnico = now;
-                    updatePayload.fase2_fechaNotaInterna = now;
                 } else {
                     updatePayload.fase1_comentariosTecnico = comments;
                     updatePayload.fase1_urlEvidencia = evidenceUrl;
                     updatePayload.fase1_numeroNotaInterna = numeroNota;
                     updatePayload.fase1_fechaFinTecnico = now;
-                    updatePayload.fase1_fechaNotaInterna = now;
                 }
                 
                 if (!project.fechaFinTecnicoReal) {

@@ -2669,7 +2669,7 @@ const DirectivoDashboard = () => {
      * @returns {Object}
      */
 
-    const processDataForDashboard = (projects, invoices, technicians) => {
+    const processDataForDashboard = (projects, invoices, technicians, sortBy, sortOrder) => {
         const currentYear = new Date().getFullYear();
         const currentMonth = new Date().getMonth();
         const labels = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -2697,11 +2697,9 @@ const DirectivoDashboard = () => {
             if (inv.tipo === 'cliente' && inv.fechaEmision?.toDate && inv.fechaEmision.toDate().getFullYear() === currentYear) {
                 const month = inv.fechaEmision.toDate().getMonth();
                 const invoiceValue = inv.monto || 0;
-
                 if (inv.estado !== 'Cancelada') {
                     monthlyARData[month].totalFacturado += invoiceValue;
                 }
-                
                 if (inv.estado === 'Pagada') {
                     monthlyARData[month].pagado += invoiceValue;
                 } else if (inv.estado === 'Pendiente') {
@@ -2729,7 +2727,6 @@ const DirectivoDashboard = () => {
             const weekStartDate = new Date(todayForWeeks.getTime() + (i * 7 * oneDay));
             weeklyLabels.push(`Sem ${i + 1} (${weekStartDate.getDate()}/${weekStartDate.getMonth() + 1})`);
         }
-        
         invoices.forEach(inv => {
             if (inv.estado === 'Pendiente' && inv.fechaPromesaPago?.toDate) {
                 const promiseDate = inv.fechaPromesaPago.toDate();
@@ -2758,7 +2755,6 @@ const DirectivoDashboard = () => {
         let totalMargin = 0, projectsWithFinancials = 0;
         let totalDeliveryDays = 0, completedProjects = 0;
         let totalActivationDays = 0, activatedProjects = 0;
-
         projects.forEach(p => {
             if ((p.precioCotizacionCliente || 0) > 0 && (p.costoProveedor || 0) >= 0) {
                 totalMargin += (p.precioCotizacionCliente - p.costoProveedor) / p.precioCotizacionCliente;
@@ -2781,8 +2777,6 @@ const DirectivoDashboard = () => {
             invoicedThisMonth: (monthlyARData[currentMonth].totalFacturado).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })
         };
 
-        today.setHours(0, 0, 0, 0);
-
         const techniciansMap = {};
         technicians.forEach(t => {
             techniciansMap[t.id] = t.nombreCompleto;
@@ -2792,7 +2786,6 @@ const DirectivoDashboard = () => {
         
         const allOperationalProjects = projects.map(p => {
             const responsableId = p.asignadoTecnicosIds?.[0];
-
             let deliveryStatus = p.estado;
             if (p.estado === 'Activo') {
                 if (p.fechaFinTecnicoReal) {
@@ -2810,7 +2803,6 @@ const DirectivoDashboard = () => {
                     }
                 }
             }
-
             return {
                 ...p,
                 responsableNombre: techniciansMap[responsableId] || 'No Asignado',
@@ -2823,29 +2815,19 @@ const DirectivoDashboard = () => {
         const processInvoices = (invoiceType) => {
             const today = new Date();
             today.setHours(0, 0, 0, 0);
-
             return invoices
                 .filter(inv => inv.tipo === invoiceType && inv.estado !== 'Pagada' && inv.estado !== 'Cancelada')
-            .map(inv => {
-                    const project = (inv.proyectoId && inv.proyectoId !== 'general')
-                        ? projectsMap.get(inv.proyectoId)
-                        : null;
-                    
+                .map(inv => {
+                    const project = (inv.proyectoId && inv.proyectoId !== 'general') ? projectsMap.get(inv.proyectoId) : null;
                     let calculatedStatus = 'Pend. de Autorización';
-                    if (inv.estado === 'Pagada') {
-                        calculatedStatus = 'Pagada';
-                    } else if (inv.estado === 'Cancelada') {
-                        calculatedStatus = 'Cancelada';
-                    } else if (inv.fechaPromesaPago?.toDate) {
+                    if (inv.estado === 'Pagada') { calculatedStatus = 'Pagada'; }
+                    else if (inv.estado === 'Cancelada') { calculatedStatus = 'Cancelada'; }
+                    else if (inv.fechaPromesaPago?.toDate) {
                         const promiseDate = inv.fechaPromesaPago.toDate();
                         promiseDate.setHours(0, 0, 0, 0);
-                        if (promiseDate < today) {
-                            calculatedStatus = 'Vencida';
-                        } else {
-                            calculatedStatus = 'Prog. a Pago';
-                        }
+                        if (promiseDate < today) { calculatedStatus = 'Vencida'; }
+                        else { calculatedStatus = 'Prog. a Pago'; }
                     }
-
                     return {
                         ...inv,
                         estado: calculatedStatus, 
@@ -2879,20 +2861,27 @@ const DirectivoDashboard = () => {
 
     useEffect(() => {
         const fetchData = async () => {
+            setLoading(true);
             try {
                 const projectsQuery = query(collection(db, PROYECTOS_COLLECTION));
                 const invoicesQuery = query(collection(db, "facturas"));
-                const techniciansQuery = query(collection(db, "usuarios"), where("rol", "==", "tecnico"));
+                const techniciansQueryOld = query(collection(db, "usuarios"), where("rol", "==", "tecnico"));
+                const techniciansQueryNew = query(collection(db, "usuarios"), where("roles", "array-contains", "tecnico"));
 
-                const [projectsSnapshot, invoicesSnapshot, techniciansSnapshot] = await Promise.all([
+                const [projectsSnapshot, invoicesSnapshot, techniciansOldSnapshot, techniciansNewSnapshot] = await Promise.all([
                     getDocs(projectsQuery),
                     getDocs(invoicesQuery),
-                    getDocs(techniciansQuery)
+                    getDocs(techniciansQueryOld),
+                    getDocs(techniciansQueryNew)
                 ]);
 
                 const allProjects = projectsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 const allInvoices = invoicesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                const allTechnicians = techniciansSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+                const techMap = new Map();
+                techniciansOldSnapshot.forEach(doc => techMap.set(doc.id, { id: doc.id, ...doc.data() }));
+                techniciansNewSnapshot.forEach(doc => techMap.set(doc.id, { id: doc.id, ...doc.data() }));
+                const allTechnicians = Array.from(techMap.values());
                 
                 const processedData = processDataForDashboard(allProjects, allInvoices, allTechnicians);
                 setDashboardData(processedData);

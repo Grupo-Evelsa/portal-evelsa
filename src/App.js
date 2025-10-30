@@ -2254,43 +2254,57 @@ const KPIWidget = ({ title, value, unit = '', trend = null }) => {
 
 const StatusBadge = ({ status }) => {
     const statusStyles = {
+        // Estados de Entrega
         'Atrasado': 'bg-red-100 text-red-800',
         'Por Vencer': 'bg-orange-100 text-orange-800',
         'A Tiempo': 'bg-green-100 text-green-800',
+        'En Espera de Proveedor': 'bg-purple-100 text-purple-800',
         'Sin Fecha': 'bg-gray-100 text-gray-600',
+        // Estados Generales del Proyecto
+        'Activo': 'bg-orange-100 text-orange-800',
+        'En Revisión Final': 'bg-blue-100 text-blue-800',
+        'Terminado Internamente': 'bg-indigo-100 text-indigo-800',
+        'Pendiente de Factura': 'bg-yellow-100 text-yellow-800',
+        'Facturado': 'bg-green-100 text-green-800',
+        'Archivado': 'bg-gray-100 text-gray-700',
+        'Cotización': 'bg-gray-200 text-gray-800',
     };
-    return (
-        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusStyles[status] || 'bg-gray-100'}`}>
-            {status}
-        </span>
-    );
+    return <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusStyles[status] || 'bg-gray-100'}`}>{status}</span>;
 };
 
-// Componente que para crear la tabla de proyectos activos y entregados, permite entregar reporte mensual
+const monthNames = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
 const OperationalReportTable = ({ projects, techniciansMap }) => {
-    const [reportType, setReportType] = useState('delivered');
-    const currentMonth = new Date().getMonth();
     const currentYear = new Date().getFullYear();
-    const [selectedMonth, setSelectedMonth] = useState(String(currentMonth));
+    const monthOptions = [
+        { value: '', label: 'Todos los Meses' },
+        ...monthNames.map((name, index) => ({ value: String(index), label: name }))
+    ];
+    const [reportType, setReportType] = useState('delivered');
+    const [selectedMonth, setSelectedMonth] = useState('');
     const [selectedYear, setSelectedYear] = useState(currentYear);
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
 
-    const { filteredProjects, totalSum } = React.useMemo(() => {
+    const { filteredProjects, totalSum, totalLabel } = React.useMemo(() => {
         let filtered = [];
         if (reportType === 'delivered') {
             filtered = projects.filter(p => {
-                const deliveryDate = p.fase2_fechaFinTecnico || p.fase1_fechaFinTecnico;
-                return deliveryDate?.toDate().getMonth() === parseInt(selectedMonth, 10) &&
-                       deliveryDate?.toDate().getFullYear() === selectedYear;
+                const deliveryDate = p.fase1_fechaFinTecnico?.toDate() || p.fase2_fechaFinTecnico?.toDate();
+                if (!deliveryDate) return false;
+                const yearMatch = deliveryDate.getFullYear() === selectedYear;
+                const monthMatch = !selectedMonth || deliveryDate.getMonth() === parseInt(selectedMonth, 10);
+                return yearMatch && monthMatch;
             });
         } else {
-            filtered = projects.filter(p =>
-                p.estado === 'Activo' &&
-                !p.fechaFinTecnicoReal &&
-                p.fechaEntregaInterna?.toDate().getMonth() === parseInt(selectedMonth, 10) &&
-                p.fechaEntregaInterna?.toDate().getFullYear() === selectedYear
-            );
+            filtered = projects.filter(p => {
+                const dueDate = p.fechaEntregaInterna?.toDate();
+                if (!dueDate) return false;
+                const statusMatch = p.estado === 'Activo' && !p.fechaFinTecnicoReal;
+                const yearMatch = dueDate.getFullYear() === selectedYear;
+                const monthMatch = !selectedMonth || dueDate.getMonth() === parseInt(selectedMonth, 10);
+                return statusMatch && yearMatch && monthMatch;
+            });
         }
         
         const sum = filtered.reduce((acc, p) => acc + (p.precioCotizacionCliente || 0), 0);
@@ -2301,14 +2315,15 @@ const OperationalReportTable = ({ projects, techniciansMap }) => {
             return dateB - dateA;
         });
 
-        return { filteredProjects: filtered, totalSum: sum };
+        const label = selectedMonth ? `${monthNames[parseInt(selectedMonth, 10)]} ${selectedYear}` : `Todo ${selectedYear}`;
+        
+        return { filteredProjects: filtered, totalSum: sum, totalLabel: label };
     }, [projects, reportType, selectedMonth, selectedYear]);
 
     const currentItems = filteredProjects.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
     const totalPages = Math.ceil(filteredProjects.length / itemsPerPage);
     const paginate = (pageNumber) => setCurrentPage(pageNumber);
 
-    const monthNames = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
     const yearOptions = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
     return (
@@ -2324,7 +2339,7 @@ const OperationalReportTable = ({ projects, techniciansMap }) => {
                 <div className="flex items-center space-x-2">
                     <label className="text-sm font-medium">Mes:</label>
                     <select value={selectedMonth} onChange={e => { setSelectedMonth(e.target.value); setCurrentPage(1); }} className="border-gray-300 rounded-md p-2 text-sm">
-                        {monthNames.map((name, index) => <option key={index} value={String(index)}>{name}</option>)}
+                        {monthOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                     </select>
                 </div>
                  <div className="flex items-center space-x-2">
@@ -2349,6 +2364,12 @@ const OperationalReportTable = ({ projects, techniciansMap }) => {
                             <th className="px-4 py-2 text-left text-xs font-medium uppercase">Proyecto</th>
                             <th className="px-4 py-2 text-left text-xs font-medium uppercase">Monto</th>
                             <th className="px-4 py-2 text-left text-xs font-medium uppercase">Responsable</th>
+                            {reportType === 'pending' && (
+                                <>
+                                    <th className="px-4 py-2 text-left text-xs font-medium uppercase">Estatus Entrega</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium uppercase">Notas Supervisor</th>
+                                </>
+                            )}
                             <th className="px-4 py-2 text-left text-xs font-medium uppercase">{reportType === 'delivered' ? 'Nota Entrega' : 'Fecha Límite'}</th>
                         </tr>
                     </thead>
@@ -2359,15 +2380,25 @@ const OperationalReportTable = ({ projects, techniciansMap }) => {
                                 <td className="px-4 py-2">{p.servicioNombre}</td>
                                 <td className="px-4 py-2 font-semibold">${(p.precioCotizacionCliente || 0).toFixed(2)}</td>
                                 <td className="px-4 py-2">{p.responsableNombre}</td>
+                                {reportType === 'pending' && (
+                                    <>
+                                        <td className="px-4 py-2"><StatusBadge status={p.deliveryStatus} /></td>
+                                        <td className="px-4 py-2 text-sm" title={p.notasSupervisor}>
+                                            <p className="w-32 truncate">{p.notasSupervisor || '---'}</p>
+                                        </td>
+                                    </>
+                                )}
                                 <td className="px-4 py-2">{reportType === 'delivered' ? p.notaEntregaNumero : formatDate(p.fechaEntregaInterna)}</td>
                             </tr>
                         ))}
                     </tbody>
                     <tfoot className="bg-gray-100 border-t-2">
                         <tr>
-                            <td className="px-4 py-3 font-bold text-right text-sm" colSpan="2">Total {reportType === 'delivered' ? 'Entregado' : 'Pendiente'} ({monthNames[selectedMonth]} {selectedYear}):</td>
+                            <td className="px-4 py-3 font-bold text-right text-sm" colSpan="2">
+                                Total {reportType === 'delivered' ? 'Entregado' : 'Pendiente'} ({totalLabel}):
+                            </td>
                             <td className="px-4 py-3 font-bold text-lg text-gray-900">${totalSum.toFixed(2)}</td>
-                            <td colSpan="2"></td>
+                            <td colSpan={reportType === 'delivered' ? 2 : 4}></td>
                         </tr>
                     </tfoot>
                 </table>
@@ -2761,11 +2792,31 @@ const DirectivoDashboard = () => {
         
         const allOperationalProjects = projects.map(p => {
             const responsableId = p.asignadoTecnicosIds?.[0];
+
+            let deliveryStatus = p.estado;
+            if (p.estado === 'Activo') {
+                if (p.fechaFinTecnicoReal) {
+                    deliveryStatus = 'En Espera de Proveedor';
+                } else {
+                    const dueDate = p.fechaEntregaInterna?.toDate();
+                    if (!dueDate) {
+                        deliveryStatus = 'Sin Fecha';
+                    } else {
+                        dueDate.setHours(0, 0, 0, 0);
+                        const diffDays = (dueDate - today) / (1000 * 60 * 60 * 24);
+                        if (diffDays < 0) deliveryStatus = 'Atrasado';
+                        else if (diffDays <= 3) deliveryStatus = 'Por Vencer';
+                        else deliveryStatus = 'A Tiempo';
+                    }
+                }
+            }
+
             return {
                 ...p,
                 responsableNombre: techniciansMap[responsableId] || 'No Asignado',
                 notaEntregaNumero: p.fase2_numeroNotaInterna || p.fase1_numeroNotaInterna || 'N/A',
-                fechaEntregaReal: p.fechaFinTecnicoReal || null,
+                fechaEntregaReal: p.fase1_fechaFinTecnico || p.fase2_fechaFinTecnico || p.fechaFinTecnicoReal,
+                deliveryStatus: deliveryStatus,
             };
         });
 

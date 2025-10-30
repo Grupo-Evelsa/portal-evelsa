@@ -4757,6 +4757,7 @@ const PracticanteDashboard = () => {
     const [sortOrder, setSortOrder] = useState('desc');
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
+    const [searchTerm, setSearchTerm] = useState('');
 
     const fetchProjects = () => {
         setLoading(true);
@@ -4779,10 +4780,16 @@ const PracticanteDashboard = () => {
     }, []);
 
     const sortedProjects = React.useMemo(() => {
-        const sortable = [...projects];
+        const filtered = projects.filter(p => 
+            (p.npu?.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (p.clienteNombre?.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (p.servicioNombre?.toLowerCase().includes(searchTerm.toLowerCase()))
+        );
+
+        const sortable = [...filtered];
         sortable.sort((a, b) => {
-            const dateA = a.fechaFinTecnico2 || a.fechaFinTecnico1;
-            const dateB = b.fechaFinTecnico2 || b.fechaFinTecnico1;
+            const dateA = a.fase2_fechaFinTecnico || a.fase1_fechaFinTecnico;
+            const dateB = b.fase2_fechaFinTecnico || b.fase1_fechaFinTecnico;
             const fieldA = dateA?.toDate() || new Date(0);
             const fieldB = dateB?.toDate() || new Date(0);
             if (fieldA < fieldB) return sortOrder === 'asc' ? -1 : 1;
@@ -4790,7 +4797,7 @@ const PracticanteDashboard = () => {
             return 0;
         });
         return sortable;
-    }, [projects, sortOrder]);
+    }, [projects, sortOrder, searchTerm]);
 
     const currentItems = sortedProjects.slice(
         (currentPage - 1) * itemsPerPage,
@@ -4891,6 +4898,13 @@ const PracticanteDashboard = () => {
             <div className="flex justify-between items-center mb-6">
                 <h1 className="text-3xl font-bold text-gray-900">Proyectos Listos para Documentar</h1>
                 <div className="flex items-center space-x-4">
+                    <input 
+                        type="text"
+                        placeholder="Buscar por NPU, Cliente..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    />
                     <div className="flex items-center">
                         <span className="text-sm mr-2">Mostrar:</span>
                         <select value={itemsPerPage} onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }} className="px-2 py-1 border border-gray-300 rounded-md">

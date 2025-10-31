@@ -2805,9 +2805,9 @@ const DirectivoDashboard = () => {
             }
             return {
                 ...p,
-                responsableNombre: techniciansMap[responsableId] || 'No Asignado',
-                notaEntregaNumero: p.fase2_numeroNotaInterna || p.fase1_numeroNotaInterna || 'N/A',
-                fechaEntregaReal: p.fase1_fechaFinTecnico || p.fase2_fechaFinTecnico || p.fechaFinTecnicoReal,
+                responsableNombre: techniciansMap[responsableId] || 'No Encontrado',
+                notaEntregaNumero: p.fase2_numeroNotaInterna || p.fase1_numeroNotaInterna || 'No encontrada',
+                fechaEntregaReal: p.fase1_fechaFinTecnico || p.fase2_fechaFinTecnico || 'No encontrada',
                 deliveryStatus: deliveryStatus,
             };
         });

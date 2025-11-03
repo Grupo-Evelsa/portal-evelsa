@@ -1939,8 +1939,8 @@ const ClientProjectsList = ({ projects, onOpenModal }) => {
                                     <div className="w-full md:w-40 mb-4 md:mb-0"><span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusClass(project.estadoCliente)}`}>{project.estadoCliente}</span></div>
                                     <div className="w-full md:w-56 flex items-center space-x-4">
                                         {project.urlHeyzine && <button onClick={() => onOpenModal(project.urlHeyzine)} className="text-sm font-medium text-blue-600 hover:text-blue-900">Ver Proyecto</button>}
-                                        {project.fase1_urlNotaEntregaFirmada && <a href={project.fase1_urlNotaEntregaFirmada} download className="text-sm font-medium text-red-600 hover:text-red-900">Nota 1</a>}
-                                        {project.fase2_urlNotaEntregaFirmada && <a href={project.fase2_urlNotaEntregaFirmada} download className="text-sm font-medium text-red-600 hover:text-red-900">Nota 2</a>}
+                                        {project.urlNotaPdf1 && <a href={project.urlNotaPdf1} download className="text-sm font-medium text-red-600 hover:text-red-900">Nota Preliminar</a>}
+                                        {project.urlNotaPdf2 && <a href={project.urlNotaPdf2} download className="text-sm font-medium text-red-600 hover:text-red-900">Nota Final</a>}
                                     </div>
                                 </li>
                             ))}

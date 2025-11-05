@@ -669,10 +669,30 @@ const ActionWithReasonModal = ({ title, message, onConfirm, onCancel, confirmTex
 
 // El Header o cabecera de la página. Muestra el logo y el botón de salir.
 // También contiene el nuevo selector de roles para usuarios con más de uno.
-const Header = ({ user, userData, selectedRole, setSelectedRole, isWorking }) => {
+const Header = ({ user, userData, selectedRole, setSelectedRole, isWorking, selectedClientProfile, setSelectedClientProfile }) => {
     const logoGrupoEvelsa = "https://www.grupoevelsa.com/assets/images/Logo Evelsa 2.png";
     const hasMultipleRoles = userData?.roles && userData.roles.length > 1;
+    const hasMultipleClients = userData?.clientesAsociados && userData.clientesAsociados.length > 1;
     
+    const [clientProfiles, setClientProfiles] = useState([]);
+    useEffect(() => {
+        if (hasMultipleClients) {
+            const fetchProfiles = async () => {
+                const profilePromises = userData.clientesAsociados.map(id => getDoc(doc(db, "usuarios", id)));
+                const profileSnapshots = await Promise.all(profilePromises);
+                setClientProfiles(profileSnapshots.map(doc => ({ id: doc.id, ...doc.data() })));
+            };
+            fetchProfiles();
+        }
+    }, [userData, hasMultipleClients]);
+    
+
+    const handleClientChange = async (e) => {
+        const newProfileId = e.target.value;
+        const profile = clientProfiles.find(p => p.id === newProfileId);
+        setSelectedClientProfile(profile);
+    };
+
     useEffect(() => {
         if (!user?.uid) return;
 
@@ -721,8 +741,8 @@ const Header = ({ user, userData, selectedRole, setSelectedRole, isWorking }) =>
         <header className="bg-white shadow-md sticky top-0 z-40">
             <div className="max-w-7xl mx-auto py-3 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
                 <div className="flex items-center">
-                    {userData && userData.rol === 'cliente' && userData.logoUrl ? (
-                        <img src={userData.logoUrl} onError={(e)=>{e.target.onerror = null; e.target.src="https://placehold.co/150x50/FFFFFF/000000?text=Logo+Cliente"}} alt="Logo Cliente" className="h-12 w-auto mr-4 object-contain"/>
+                    {selectedClientProfile && selectedClientProfile.rol === 'cliente' && selectedClientProfile.logoUrl ? (
+                        <img src={selectedClientProfile.logoUrl} onError={(e)=>{e.target.onerror = null; e.target.src="https://placehold.co/150x50/FFFFFF/000000?text=Logo+Cliente"}} alt="Logo Cliente" className="h-12 w-auto mr-4 object-contain"/>
                     ) : (
                         <img src={logoGrupoEvelsa} alt="Logo Grupo Evelsa" className="h-12 w-auto mr-4"/>
                     )}
@@ -742,6 +762,22 @@ const Header = ({ user, userData, selectedRole, setSelectedRole, isWorking }) =>
                                 >
                                     {userData.roles.map(role => (
                                         <option key={role} value={role} className="capitalize">{role.charAt(0).toUpperCase() + role.slice(1)}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
+                        {hasMultipleClients && selectedRole === 'cliente' && (
+                            <div className="relative">
+                                <select 
+                                    value={selectedClientProfile?.id || ''}
+                                    onChange={handleClientChange}
+                                    className="appearance-none bg-gray-100 border border-gray-300 rounded-md py-2 pl-3 pr-8 text-sm font-medium text-gray-700 hover:bg-gray-200"
+                                >
+                                    {clientProfiles.map(profile => (
+                                        <option key={profile.id} value={profile.id}>
+                                            {profile.planta || profile.nombreCompleto}
+                                        </option>
                                     ))}
                                 </select>
                             </div>
@@ -1961,11 +1997,15 @@ const ClientDashboard = ({ user, userData }) => {
     const [modalUrl, setModalUrl] = useState(null);
 
     useEffect(() => {
-        if (!user) { setLoading(false); return; }
+        if (!userData || !userData.id) {
+            setLoading(false);
+            return;
+        }
         
+        setLoading(true);
         const q = query(
             collection(db, PROYECTOS_COLLECTION), 
-            where("clienteId", "==", user.uid),
+            where("clienteId", "==", userData.id), 
             where("estadoCliente", "in", ["Activo", "Terminado"])
         );
         
@@ -1973,7 +2013,9 @@ const ClientDashboard = ({ user, userData }) => {
             const projectsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             projectsData.sort((a, b) => (b.fechaApertura?.seconds || 0) - (a.fechaApertura?.seconds || 0));
             setProjects(projectsData);
-
+            setLoading(false);
+        
+        
             const latestProjectsMap = new Map();
 
             projectsData.forEach(project => {
@@ -1992,14 +2034,15 @@ const ClientDashboard = ({ user, userData }) => {
             setLoading(false);
         }, (error) => {
             console.error("Error fetching client projects: ", error);
-            if (error.code === 'failed-precondition') {
-                console.error("IMPORTANTE: Se requiere un índice compuesto en Firestore. Ve a la URL que aparece en el mensaje de error en la consola para crearlo con un solo clic.");
-            }
             setLoading(false);
         });
         
         return () => unsubscribe();
-    }, [user]);
+    }, [userData]);
+
+    if (!userData) {
+        return <div className="text-center py-10">Cargando perfil...</div>;
+    }
 
     return (
         <>
@@ -5048,14 +5091,14 @@ const PracticanteDashboard = () => {
 
 // Este es el "router" principal. Recibe el rol activo del usuario
 // y decide qué dashboard específico debe mostrar.
-const Dashboard = ({ user, userData, selectedRole, setIsTechnicianWorking }) => {
+const Dashboard = ({ user, userData, selectedRole, setIsTechnicianWorking, selectedClientProfile }) => {    
     
     const renderDashboardByRole = () => {
         switch (selectedRole) {
             case 'administrador':
                 return <AdminDashboard user={user} userData={userData} selectedRole={selectedRole} />;
             case 'cliente':
-                return <ClientDashboard user={user} userData={userData} />;
+                return <ClientDashboard user={user} userData={selectedClientProfile} />;
             case 'directivo':
                 return <DirectivoDashboard user={user} userData={userData} />;
             case 'ecotech':
@@ -5127,38 +5170,61 @@ export default function App() {
     const [loading, setLoading] = useState(true);
     const [selectedRole, setSelectedRole] = useState(null);
     const [isTechnicianCurrentlyWorking, setIsTechnicianCurrentlyWorking] = useState(false);
+    const [selectedClientProfile, setSelectedClientProfile] = useState(null);
 
     // Este efecto se ejecuta una vez para verificar si hay una sesión activa.
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+        const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+            let unsubscribeSnapshot = () => {};
             if (currentUser) {
-                // Si hay un usuario, busco sus datos en Firestore.
                 const userDocRef = doc(db, "usuarios", currentUser.uid);
-                const userDoc = await getDoc(userDocRef);
-                if (userDoc.exists()) {
-                    const data = userDoc.data();
-                    setUserData(data);
-                    setUser(currentUser);
-                    // Lógica para manejar el rol activo, ya sea uno solo o el primero de una lista.
-                    if (data.roles && data.roles.length > 0) {
-                        setSelectedRole(data.roles[0]);
-                    } else if (data.rol) {
-                        setSelectedRole(data.rol);
-                    }
+                unsubscribeSnapshot = onSnapshot(userDocRef, (userDoc) => {
+                    if (userDoc.exists()) {
+                        const data = userDoc.data();
+                        setUserData(data);
+                        setUser(currentUser);
+                        
+                        if (data.roles && data.roles.length > 0) {
+                            setSelectedRole(data.roles[0]);
+                        } else if (data.rol) {
+                            setSelectedRole(data.rol);
+                        }
 
-                } else {
-                    console.error("Usuario autenticado pero no encontrado en Firestore. Deslogueando...");
-                    signOut(auth);
-                }
+                        if (data.rol === 'cliente') {
+                            if (data.clientesAsociados && data.clientesAsociados.length > 0) {
+                                const mainProfileRef = doc(db, "usuarios", data.clientesAsociados[0]);
+                                getDoc(mainProfileRef).then(profileDoc => {
+                                    if(profileDoc.exists()) {
+                                        setSelectedClientProfile({ id: profileDoc.id, ...profileDoc.data() });
+                                    }
+                                    setLoading(false);
+                                });
+                            } else {
+                                setSelectedClientProfile({ id: userDoc.id, ...data });
+                                setLoading(false);
+                            }
+                        } else {
+                            setLoading(false);
+                        }
+
+                    } else { 
+                        signOut(auth); 
+                        setLoading(false);
+                    }
+                }, (error) => { 
+                    console.error("Error:", error); 
+                    signOut(auth); 
+                    setLoading(false);
+                });
             } else {
-                // Si no hay sesión, limpio todos los datos.
-                setUser(null);
-                setUserData(null);
-                setSelectedRole(null);
+                setUser(null); setUserData(null); setSelectedRole(null);
+                setSelectedClientProfile(null);
+                setLoading(false);
             }
-            setLoading(false);
+            
+            return () => unsubscribeSnapshot(); 
         });
-        return () => unsubscribe();
+        return () => unsubscribeAuth();
     }, []);
 
     useEffect(() => {
@@ -5239,7 +5305,9 @@ export default function App() {
                 userData={userData}
                 selectedRole={selectedRole}
                 setSelectedRole={setSelectedRole}
-                isWorking={isTechnicianCurrentlyWorking} 
+                isWorking={isTechnicianCurrentlyWorking}
+                selectedClientProfile={selectedClientProfile}
+                setSelectedClientProfile={setSelectedClientProfile} 
             />
             <main>
                 {user && userData ? (
@@ -5247,7 +5315,8 @@ export default function App() {
                         user={user} 
                         userData={userData} 
                         selectedRole={selectedRole} 
-                        setIsTechnicianWorking={setIsTechnicianCurrentlyWorking} 
+                        setIsTechnicianWorking={setIsTechnicianCurrentlyWorking}
+                        selectedClientProfile={selectedClientProfile} 
                     />
                  ) : <AuthPage />}
             </main>

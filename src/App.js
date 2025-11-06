@@ -1813,50 +1813,44 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
 
     const handleApprove = async () => {
         if (!confirmingAction || confirmingAction.action !== 'approve') return;
-        
         const { project } = confirmingAction.payload;
         const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
-        const isFinalDelivery = !!project.urlDocumento2;
 
-        try {
-            if (isFinalDelivery) {
-                if (project.faseFacturacion === 'Preliminar' || project.faseFacturacion === 'Fase 2 Pendiente') {
-                    await updateDoc(projectRef, { estado: 'Archivado', estadoCliente: 'Terminado' });
-                } else {
-                    await updateDoc(projectRef, { estado: 'Pendiente de Factura', estadoCliente: 'Terminado' });
-                }
+        const isPreliminaryDelivery = project.fase1_fechaFinTecnico && !project.fase2_fechaFinTecnico;
+        
+        if (isPreliminaryDelivery) {
+
+            await updateDoc(projectRef, { 
+                estado: 'Pendiente de Factura', 
+                faseFacturacion: 'Preliminar',
+                estadoCliente: 'Terminado'
+            });
+        } else {
+
+            if (project.faseFacturacion === 'Preliminar' || project.faseFacturacion === 'Fase 2 Pendiente') {
+                await updateDoc(projectRef, { estado: 'Archivado', estadoCliente: 'Terminado' });
             } else {
-                await updateDoc(projectRef, { estado: 'Pendiente de Factura', faseFacturacion: 'Preliminar' });
+                await updateDoc(projectRef, { estado: 'Pendiente de Factura', estadoCliente: 'Terminado' });
             }
-        } catch (error) {
-            console.error("Error al aprobar proyecto:", error);
-            alert("Ocurrió un error al aprobar el proyecto.");
-        } finally {
-            setConfirmingAction(null); 
-            onUpdateProject();
         }
+        
+        setConfirmingAction(null);
+        onUpdateProject();
     };
 
     const handleReject = async (reason) => {
         if (!confirmingAction || confirmingAction.action !== 'reject') return;
-        
-        if (!reason || reason.trim() === '') {
-            alert("El motivo del rechazo no puede estar vacío.");
-            return; 
-        }
+        const { projectId } = confirmingAction.payload;
 
-        const { projectId } = confirmingAction.payload; 
-        const projectRef = doc(db, PROYECTOS_COLLECTION, projectId);
-        
-        try {
+        if (reason && reason.trim() !== '') {
+            const projectRef = doc(db, PROYECTOS_COLLECTION, projectId);
             await updateDoc(projectRef, { estado: 'Terminado Internamente', motivoRechazo: reason });
-        } catch (error) {
-            console.error("Error al rechazar proyecto:", error);
-            alert("Ocurrió un error al rechazar el proyecto.");
-        } finally {
-            setConfirmingAction(null); 
-            onUpdateProject(); 
+            onUpdateProject();
+        } else {
+            alert("El motivo del rechazo no puede estar vacío.");
+            return;
         }
+        setConfirmingAction(null);
     };
 
     const promptApprove = (project) => {
@@ -1894,6 +1888,7 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
                         <tr>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Documentos Finales</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
                         </tr>
@@ -1914,6 +1909,7 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
                                         {project.fase2_urlNotaEntregaFirmada && <a href={project.fase2_urlNotaEntregaFirmada} target="_blank" rel="noopener noreferrer" className="text-red-600">Ver Nota 2 (Firmada)</a>}
                                     </div>
                                 </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.clienteNombre}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm">{project.servicioNombre}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm">{project.npu}</td>
                             </tr>

@@ -40,7 +40,7 @@ import {
     getDownloadURL 
 } from 'firebase/storage';
 
-import { Bar } from 'react-chartjs-2';
+import { Bar, Line } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, LineElement, PointElement, LineController, Title, Tooltip, Legend, ArcElement } from 'chart.js';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -2238,46 +2238,6 @@ const CashFlowChart = ({ chartData }) => {
     return <Bar options={options} data={data} />;
 };
 
-//Componente para la gráfica de Productividad por Técnico. 
-const TechnicianProductivityChart = ({ chartData }) => {
-    const data = {
-        labels: chartData.labels,
-        datasets: [
-            {
-                label: 'Proyectos Entregados (Mes Actual)',
-                data: chartData.completedData, 
-                backgroundColor: 'rgba(153, 102, 255, 0.7)',
-                borderColor: 'rgba(153, 102, 255, 1)',
-                borderWidth: 1,
-            },
-        ],
-    };
-
-    const options = {
-        indexAxis: 'y', 
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-            legend: {
-                display: false, 
-            },
-            title: {
-                display: false,
-            },
-        },
-        scales: {
-            x: {
-                beginAtZero: true,
-                ticks: {
-                    stepSize: 1,
-                }
-            }
-        }
-    };
-
-    return <Bar options={options} data={data} />;
-};
-
 // El widget que muestra un KPI en el dashboard directivo.
 const KPIWidget = ({ title, value, unit = '', trend = null }) => {
     return (
@@ -2324,6 +2284,15 @@ const OperationalReportTable = ({ projects, techniciansMap }) => {
     const [selectedYear, setSelectedYear] = useState(currentYear);
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
+    const [techFilter, setTechFilter] = useState('');
+
+    const technicianOptions = React.useMemo(() => {
+        if (!techniciansMap) return [];
+        return Object.values(techniciansMap)
+                     .filter((name, index, self) => self.indexOf(name) === index)
+                     .sort()
+                     .map(name => ({ value: name, label: name }));
+    }, [techniciansMap]);
 
     const { filteredProjects, totalSum, totalLabel } = React.useMemo(() => {
         let filtered = [];
@@ -2345,6 +2314,10 @@ const OperationalReportTable = ({ projects, techniciansMap }) => {
                 return statusMatch && yearMatch && monthMatch;
             });
         }
+
+        if (techFilter) {
+            filtered = filtered.filter(p => p.responsableNombre === techFilter);
+        }
         
         const sum = filtered.reduce((acc, p) => acc + (p.precioCotizacionCliente || 0), 0);
         
@@ -2357,7 +2330,7 @@ const OperationalReportTable = ({ projects, techniciansMap }) => {
         const label = selectedMonth ? `${monthNames[parseInt(selectedMonth, 10)]} ${selectedYear}` : `Todo ${selectedYear}`;
         
         return { filteredProjects: filtered, totalSum: sum, totalLabel: label };
-    }, [projects, reportType, selectedMonth, selectedYear]);
+    }, [projects, reportType, selectedMonth, selectedYear, techFilter]);
 
     const currentItems = filteredProjects.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
     const totalPages = Math.ceil(filteredProjects.length / itemsPerPage);
@@ -2385,6 +2358,13 @@ const OperationalReportTable = ({ projects, techniciansMap }) => {
                     <label className="text-sm font-medium">Año:</label>
                     <select value={selectedYear} onChange={e => { setSelectedYear(parseInt(e.target.value, 10)); setCurrentPage(1); }} className="border-gray-300 rounded-md p-2 text-sm">
                          {yearOptions.map(year => <option key={year} value={year}>{year}</option>)}
+                    </select>
+                </div>
+                <div className="flex items-center space-x-2">
+                    <label className="text-sm font-medium">Responsable:</label>
+                    <select value={techFilter} onChange={e => { setTechFilter(e.target.value); setCurrentPage(1); }} className="border-gray-300 rounded-md p-2 text-sm">
+                        <option value="">Todos</option>
+                        {technicianOptions.map(tech => <option key={tech.value} value={tech.value}>{tech.label}</option>)}
                     </select>
                 </div>
                  <div className="flex items-center space-x-2 ml-auto">
@@ -2694,6 +2674,48 @@ const AccountsPayableDirectiveTable = ({ invoices, projectsMap }) => {
     );
 };
 
+// Componente para la grafica de montos entregados por tecnico mensual
+const TechnicianRevenueChart = ({ chartData }) => {
+    const data = {
+        labels: chartData.labels,
+        datasets: chartData.datasets,
+    };
+
+    const options = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { position: 'bottom' },
+            title: { display: false },
+            tooltip: {
+                mode: 'index',
+                intersect: false,
+                callbacks: {
+                    label: function(context) {
+                        let label = context.dataset.label || '';
+                        if (label) label += ': ';
+                        if (context.parsed.y !== null) {
+                            label += new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(context.parsed.y);
+                        }
+                        return label;
+                    }
+                }
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) {
+                        return '$' + new Intl.NumberFormat('es-MX').format(value);
+                    }
+                }
+            }
+        }
+    };
+
+    return <Line data={data} options={options} />;
+};
 // El dashboard Directivo. Muestra las gráficas y KPIs
 // sobre la salud del negocio que construimos.
 const DirectivoDashboard = () => {
@@ -2701,6 +2723,8 @@ const DirectivoDashboard = () => {
     const [error, setError] = useState('');
     const [dashboardData, setDashboardData] = useState(null);
     const [view, setView] = useState('kpis');
+    const [billingMonthViewOffset, setBillingMonthViewOffset] = useState(0);
+    const [paidMonthViewOffset, setPaidMonthViewOffset] = useState(0);
 
     /**
      * @param {Array} projects
@@ -2710,7 +2734,6 @@ const DirectivoDashboard = () => {
 
     const processDataForDashboard = (projects, invoices, technicians, sortBy, sortOrder) => {
         const currentYear = new Date().getFullYear();
-        const currentMonth = new Date().getMonth();
         const labels = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -2758,6 +2781,17 @@ const DirectivoDashboard = () => {
                 }
             }
         });
+        
+        const monthlyPaidData = Array(12).fill(0);
+        invoices.forEach(inv => {
+            if (inv.tipo === 'cliente' && inv.estado === 'Pagada' && inv.fechaPagoReal?.toDate) {
+                const paymentDate = inv.fechaPagoReal.toDate();
+                if (paymentDate.getFullYear() === currentYear) {
+                    const paymentMonth = paymentDate.getMonth();
+                    monthlyPaidData[paymentMonth] += inv.monto || 0;
+                }
+            }
+        });
 
         const weeklyCashFlowData = Array(8).fill(0).map(() => ({ ingresos: 0, egresos: 0 }));
         const weeklyLabels = [];
@@ -2778,18 +2812,43 @@ const DirectivoDashboard = () => {
             }
         });
 
-        const techProductivity = {};
-        technicians.forEach(t => { techProductivity[t.id] = { name: t.nombreCompleto.split(' ')[0], completed: 0 }; });
-        projects.forEach(p => {
-            [p.fechaFinTecnico1, p.fechaFinTecnico2].filter(Boolean).forEach(timestamp => {
-                const completionDate = timestamp.toDate();
-                if (completionDate.getMonth() === currentMonth && completionDate.getFullYear() === currentYear) {
-                    (p.asignadoTecnicosIds || []).forEach(techId => {
-                        if (techProductivity[techId]) { techProductivity[techId].completed += 1; }
-                    });
-                }
-            });
+        const techRevenueData = {};
+        technicians.forEach(t => {
+            techRevenueData[t.id] = {
+                label: t.nombreCompleto.split(' ')[0],
+                data: Array(12).fill(0),
+            };
         });
+
+        projects.forEach(p => {
+            const deliveryDate = p.fase2_fechaFinTecnico?.toDate() || p.fase1_fechaFinTecnico?.toDate();
+            
+            if (deliveryDate && deliveryDate.getFullYear() === currentYear && p.asignadoTecnicosIds && p.asignadoTecnicosIds.length > 0) {
+                const month = deliveryDate.getMonth();
+                const amount = p.precioCotizacionCliente || 0;
+                const responsibleTechId = p.asignadoTecnicosIds[0]; 
+
+                if (techRevenueData[responsibleTechId]) {
+                    techRevenueData[responsibleTechId].data[month] += amount;
+                }
+            }
+        });
+
+        const colors = [
+            'rgba(54, 162, 235, 1)', 
+            'rgba(255, 99, 132, 1)', 
+            'rgba(75, 192, 192, 1)', 
+            'rgba(255, 206, 86, 1)',  
+            'rgba(153, 102, 255, 1)',
+            'rgba(255, 159, 64, 1)', 
+        ];
+        const techDatasets = Object.values(techRevenueData).map((tech, index) => ({
+            ...tech,
+            borderColor: colors[index % colors.length],
+            backgroundColor: colors[index % colors.length].replace('1)', '0.2)'),
+            fill: true,
+            tension: 0.1,
+        }));
 
         let totalMargin = 0, projectsWithFinancials = 0;
         let totalDeliveryDays = 0, completedProjects = 0;
@@ -2813,7 +2872,8 @@ const DirectivoDashboard = () => {
             avgMargin: projectsWithFinancials > 0 ? ((totalMargin / projectsWithFinancials) * 100).toFixed(1) : 0,
             avgDeliveryDays: completedProjects > 0 ? (totalDeliveryDays / completedProjects).toFixed(1) : 0,
             avgActivationDays: activatedProjects > 0 ? (totalActivationDays / activatedProjects).toFixed(1) : 0,
-            invoicedThisMonth: (monthlyARData[currentMonth].totalFacturado).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })
+            monthlyBillingData: monthlyARData,
+            monthlyPaidData: monthlyPaidData
         };
 
         const techniciansMap = {};
@@ -2889,7 +2949,7 @@ const DirectivoDashboard = () => {
             pipeline: { labels, cotizacionData: monthlyProjectsData.map(m => m.cotizacion), activoData: monthlyProjectsData.map(m => m.activo), pendienteFacturaData: monthlyProjectsData.map(m => m.pendienteFactura), totalData: monthlyProjectsData.map(m => m.total) },
             accountsReceivable: { labels, totalFacturadoData: monthlyARData.map(m => m.totalFacturado), pagadoData: monthlyARData.map(m => m.pagado), programadoData: monthlyARData.map(m => m.programado), venceHoyData: monthlyARData.map(m => m.venceHoy), vencidoData: monthlyARData.map(m => m.vencido), pdteProgramacionData: monthlyARData.map(m => m.pdteProgramacion) },
             cashFlow: { labels: weeklyLabels, ingresosData: weeklyCashFlowData.map(w => w.ingresos), egresosData: weeklyCashFlowData.map(w => w.egresos) },
-            technicianProductivity: { labels: Object.values(techProductivity).map(t => t.name), completedData: Object.values(techProductivity).map(t => t.completed) },
+            techRevenueChart: { labels, datasets: techDatasets },
             allOperationalProjects,
             techniciansMap,
             accountsReceivableList,
@@ -2980,8 +3040,64 @@ const DirectivoDashboard = () => {
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
                             <KPIWidget title="Margen Promedio" value={dashboardData.kpis.avgMargin} unit="%" />
                             <KPIWidget title="Tiempo Prom. Entrega" value={dashboardData.kpis.avgDeliveryDays} unit="días" />
-                            <KPIWidget title="Tiempo Prom. Activación" value={dashboardData.kpis.avgActivationDays} unit="días" />
-                            <KPIWidget title="Facturado (Mes Actual)" value={dashboardData.kpis.invoicedThisMonth} />
+                            {/* Widget de pagado en el mes y los dos anteriores */}
+                            {(() => {
+                                const currentMonthIndex = new Date().getMonth();
+                                const allPaidData = dashboardData.kpis.monthlyPaidData;
+                                const monthIndexToShow = (currentMonthIndex - paidMonthViewOffset + 12) % 12;
+                                const kpiValue = allPaidData[monthIndexToShow];
+                                const kpiLabel = monthNames[monthIndexToShow];
+
+                                return (
+                                    <div className="bg-white p-5 rounded-xl shadow-md relative">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <h3 className="font-bold text-gray-500">Ingresos ({kpiLabel})</h3>
+                                            <div className="flex space-x-1">
+                                                <button onClick={() => setPaidMonthViewOffset(prev => (prev + 1) % 3)} /* ... */ >&#8592;</button>
+                                                <button onClick={() => setPaidMonthViewOffset(prev => (prev - 1 + 3) % 3)} /* ... */ >&#8594;</button>
+                                            </div>
+                                        </div>
+                                        <p className="text-3xl font-bold mt-2">
+                                            {kpiValue.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}
+                                        </p>
+                                    </div>
+                                );
+                            })()}
+                            {/* Widget de facturado en el mes y los dos anteriores */}
+                            {(() => {
+                                const currentMonthIndex = new Date().getMonth();
+                                const allBillingData = dashboardData.kpis.monthlyBillingData;
+                                const monthIndexToShow = (currentMonthIndex - billingMonthViewOffset + 12) % 12;
+                                const kpiValue = allBillingData[monthIndexToShow].totalFacturado;
+                                const kpiLabel = monthNames[monthIndexToShow];
+
+                                return (
+                                    <div className="bg-white p-5 rounded-xl shadow-md relative">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <h3 className="font-bold text-gray-500">Facturado ({kpiLabel})</h3>
+                                            <div className="flex space-x-1">
+                                                <button 
+                                                    onClick={() => setBillingMonthViewOffset(prev => (prev + 1) % 3)} 
+                                                    className="bg-gray-200 hover:bg-gray-300 text-gray-700 w-6 h-6 rounded-full flex items-center justify-center"
+                                                    title="Mes anterior"
+                                                >
+                                                    &#8592;
+                                                </button>
+                                                <button 
+                                                    onClick={() => setBillingMonthViewOffset(prev => (prev - 1 + 3) % 3)} 
+                                                    className="bg-gray-200 hover:bg-gray-300 text-gray-700 w-6 h-6 rounded-full flex items-center justify-center"
+                                                    title="Mes siguiente"
+                                                >
+                                                    &#8594;
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <p className="text-3xl font-bold mt-2">
+                                            {kpiValue.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}
+                                        </p>
+                                    </div>
+                                );
+                            })()}
                         </div>
                     )}
 
@@ -3005,9 +3121,9 @@ const DirectivoDashboard = () => {
                             </div>
                         </div>
                         <div className="bg-white p-6 rounded-xl shadow-md">
-                            <h3 className="font-bold text-lg mb-4">Productividad por Técnico (Mes Actual)</h3>
+                            <h3 className="font-bold text-lg mb-4">Monto Entregado por Técnico (Mensual)</h3>
                             <div className="h-80">
-                                {dashboardData?.technicianProductivity && <TechnicianProductivityChart chartData={dashboardData.technicianProductivity} />}
+                                {dashboardData?.techRevenueChart && <TechnicianRevenueChart chartData={dashboardData.techRevenueChart} />}
                             </div>
                         </div>
                     </div>

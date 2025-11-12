@@ -8,6 +8,9 @@ const {onValueUpdated} = require("firebase-functions/v2/database");
 
 admin.initializeApp();
 
+const PROYECTOS_COLLECTION = "proyectos_v2";
+
+
 /**
  * Obtiene los datos de un usuario desde Firestore.
  * @param {string} firebaseUserId El UID del usuario en Firebase.
@@ -249,72 +252,80 @@ exports.processTimeLog = onDocumentCreated("registrosDeTiempo/{logId}",
       const logData = snap.data();
       const {projectId, fechaInicio, fechaFin} = logData;
 
-      if (!projectId || !fechaInicio?.toDate || !fechaFin?.toDate) {
-        log("Registro de tiempo incompleto, no se procesará.", logData);
+      if (!projectId || !fechaInicio) {
+        log("Registro de tiempo inválido (falta projectId o fechaInicio).",
+            logData);
+        return;
+      }
+      if (!fechaFin) {
+        log("Registro de tiempo incompleto (falta fechaFin), no se procesará.",
+            logData);
         return;
       }
 
       try {
-        const startTime = fechaInicio.toDate();
-        const endTime = fechaFin.toDate();
-        const durationInMillis = endTime.getTime() - startTime.getTime();
-        const durationInHours = durationInMillis / (1000 * 60 * 60);
+        const startTime = (typeof fechaInicio.toDate === "function") ?
+         fechaInicio.toDate() : new Date(fechaInicio);
+        const endTime = (typeof fechaFin.toDate === "function") ?
+         fechaFin.toDate() : new Date(fechaFin);
 
+        const durationInMillis = endTime.getTime() - startTime.getTime();
+
+        if (durationInMillis <= 0) {
+          log(`Duración no válida (${durationInMillis}ms) para ${projectId}.`);
+          return;
+        }
+
+        const durationInHours = durationInMillis / (1000 * 60 * 60);
         const projectRef =
-         admin.firestore().collection("proyectos_v2").doc(projectId);
+         admin.firestore().collection(PROYECTOS_COLLECTION).doc(projectId);
 
         await projectRef.update({
           horasRegistradas:
            admin.firestore.FieldValue.increment(durationInHours),
         });
 
-        log(`Se añadieron ${durationInHours.toFixed(2)} horas al proyecto ${
-          projectId}.`);
+        log(`Se añadieron ${durationInHours.toFixed(2)}
+         horas al proyecto ${projectId}.`);
       } catch (err) {
-        error(`Error al procesar el registro de tiempo para el proyecto ${
-          projectId}:`, err);
+        error(`Error al procesar el registro de tiempo ${snap.id}:`, err);
       }
     });
+
 /**
- * Se activa cuando cambia el estado de un usuario en RTDB. Si se desconecta
- * y tenía una tarea activa, la pausa en Firestore.
+ * Se activa cuando cambia el estado de un usuario en RTDB.
  */
 exports.onUserStatusChanged =
  onValueUpdated("/status/{userId}", async (event) => {
    const statusData = event.data.after.val();
    if (!statusData || statusData.state !== "offline") {
-     log(`User ${event.params.userId} is not offline. No action needed.`);
+     log(`Usuario ${event.params.userId}
+       no está offline. No se requiere acción.`);
      return;
    }
 
-   const userFirestoreRef =
-    admin.firestore().collection("usuarios").doc(event.params.userId);
+   const activeProjectId = statusData.activeProjectId;
+   const activeTaskStart = statusData.activeTaskStart;
 
-   try {
-     const userDoc = await userFirestoreRef.get();
-     if (!userDoc.exists) {
-       log(`User ${event.params.userId} not found in Firestore.`);
-       return;
-     }
+   if (activeProjectId && activeTaskStart) {
+     log(`Usuario ${event.params.userId}
+       se desconectó con tarea activa. Pausando...`);
 
-     const userData = userDoc.data();
-     const activeTask = userData.tareaActiva;
+     const userFirestoreRef =
+      admin.firestore().collection("usuarios").doc(event.params.userId);
+     const timeLogRef = admin.firestore().collection("registrosDeTiempo").doc();
+     const projectRef =
+      admin.firestore().collection(PROYECTOS_COLLECTION).doc(activeProjectId);
 
-     if (activeTask && activeTask.projectId && activeTask.inicio) {
-       log(`User ${event.params.userId}
-         went offline with active task. Pausing...`);
-       const timeLogRef =
-        admin.firestore().collection("registrosDeTiempo").doc();
-       const projectRef =
-        admin.firestore().collection("proyectos_v2").doc(activeTask.projectId);
+     try {
        await timeLogRef.set({
          tecnicoId: event.params.userId,
-         projectId: activeTask.projectId,
-         fechaInicio: activeTask.inicio,
+         projectId: activeProjectId,
+         fechaInicio: activeTaskStart,
          fechaFin: statusData.last_changed,
        });
 
-       const startTime = activeTask.inicio.toDate();
+       const startTime = activeTaskStart.toDate();
        const endTime = new Date(statusData.last_changed);
        const durationInMillis = endTime.getTime() - startTime.getTime();
        if (durationInMillis > 0) {
@@ -324,21 +335,20 @@ exports.onUserStatusChanged =
             admin.firestore.FieldValue.increment(durationInHours),
          });
          log(`Added ${durationInHours.toFixed(2)}
-          hours to project ${activeTask.projectId} due to disconnect.`);
-       } else {
-         log(`Invalid duration calculated for project $
-          {activeTask.projectId}.`);
+          hours to project ${activeProjectId} due to disconnect.`);
        }
+
        await userFirestoreRef.update({
          tareaActiva: admin.firestore.FieldValue.delete(),
        });
 
-       log(`Active task for user ${event.params.userId} paused successfully.`);
-     } else {
-       log(`User ${event.params.userId} went offline without an active task.`);
+       log(`Tarea activa del usuario ${event.params.userId}
+         pausada con éxito.`);
+     } catch (err) {
+       error(`Error procesando estado offline para usuario 
+              ${event.params.userId}:`, err);
      }
-   } catch (err) {
-     error(`Error processing offline status for user $
-      {event.params.userId}:`, err);
+   } else {
+     log(`Usuario ${event.params.userId} se desconectó sin tarea activa.`);
    }
  });

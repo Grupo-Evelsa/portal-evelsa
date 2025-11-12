@@ -673,8 +673,8 @@ const Header = ({ user, userData, selectedRole, setSelectedRole, isWorking, sele
     const logoGrupoEvelsa = "https://www.grupoevelsa.com/assets/images/Logo Evelsa 2.png";
     const hasMultipleRoles = userData?.roles && userData.roles.length > 1;
     const hasMultipleClients = userData?.clientesAsociados && userData.clientesAsociados.length > 1;
-    
     const [clientProfiles, setClientProfiles] = useState([]);
+
     useEffect(() => {
         if (hasMultipleClients) {
             const fetchProfiles = async () => {
@@ -691,6 +691,10 @@ const Header = ({ user, userData, selectedRole, setSelectedRole, isWorking, sele
         const newProfileId = e.target.value;
         const profile = clientProfiles.find(p => p.id === newProfileId);
         setSelectedClientProfile(profile);
+    };
+
+    const handleSafeSignOut = () => {
+        signOut(auth);
     };
 
     useEffect(() => {
@@ -783,9 +787,9 @@ const Header = ({ user, userData, selectedRole, setSelectedRole, isWorking, sele
                             </div>
                         )}
                         
-                        <button
-                            onClick={() => signOut(auth)}
-                            disabled={isWorking}
+                        <button 
+                            onClick={handleSafeSignOut} 
+                            disabled={isWorking} 
                             className={`font-bold py-2 px-4 rounded-lg transition duration-300 ${
                                 isWorking ? 'bg-gray-400 text-gray-700 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 text-white'
                             }`}
@@ -2716,8 +2720,8 @@ const TechnicianRevenueChart = ({ chartData }) => {
 
     return <Line data={data} options={options} />;
 };
-// El dashboard Directivo. Muestra las gráficas y KPIs
-// sobre la salud del negocio que construimos.
+
+// El dashboard Directivo Muestra las gráficas y KPIs sobre la salud del negocio que construimos.
 const DirectivoDashboard = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -2729,18 +2733,33 @@ const DirectivoDashboard = () => {
     /**
      * @param {Array} projects
      * @param {Array} invoices
+     * @param {Array} technicians
+     * @param {string} sortBy
+     * @param {string} sortOrder
      * @returns {Object}
      */
-
-    const processDataForDashboard = (projects, invoices, technicians, sortBy, sortOrder) => {
+    const processDataForDashboard = (projects, invoices, technicians) => {
         const currentYear = new Date().getFullYear();
         const labels = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const oneDay = 1000 * 60 * 60 * 24;
-
         const monthlyProjectsData = Array(12).fill(0).map(() => ({ cotizacion: 0, activo: 0, pendienteFactura: 0, total: 0 }));
+        const monthlyARData = Array(12).fill(0).map(() => ({ totalFacturado: 0, pdteProgramacion: 0, programado: 0, venceHoy: 0, vencido: 0, pagado: 0 }));
+        const monthlyPaidData = Array(12).fill(0);
+        const monthlyProgrammedData = Array(12).fill(0);
+        const weeklyCashFlowData = Array(8).fill(0).map(() => ({ ingresos: 0, egresos: 0 }));
+        const allAccountsReceivable = [];
+        const allAccountsPayable = [];
+        const projectsMap = new Map(projects.map(p => [p.id, p]));
+        const techniciansMap = {};
+        technicians.forEach(t => { techniciansMap[t.id] = t.nombreCompleto; });
+        const techRevenueData = {};
+        technicians.forEach(t => { techRevenueData[t.id] = { label: t.nombreCompleto.split(' ')[0], data: Array(12).fill(0) }; });
+
+        let totalDeliveryDays = 0, completedProjects = 0;
         projects.forEach(p => {
+
             if (p.fechaApertura?.toDate && p.fechaApertura.toDate().getFullYear() === currentYear) {
                 const month = p.fechaApertura.toDate().getMonth();
                 const projectValue = p.precioCotizacionCliente || 0;
@@ -2752,198 +2771,163 @@ const DirectivoDashboard = () => {
                     default: break;
                 }
             }
-        });
 
-        const monthlyARData = Array(12).fill(0).map(() => ({ totalFacturado: 0, pdteProgramacion: 0, programado: 0, venceHoy: 0, vencido: 0, pagado: 0 }));
-        invoices.forEach(inv => {
-            if (inv.tipo === 'cliente' && inv.fechaEmision?.toDate && inv.fechaEmision.toDate().getFullYear() === currentYear) {
-                const month = inv.fechaEmision.toDate().getMonth();
-                const invoiceValue = inv.monto || 0;
-                if (inv.estado !== 'Cancelada') {
-                    monthlyARData[month].totalFacturado += invoiceValue;
-                }
-                if (inv.estado === 'Pagada') {
-                    monthlyARData[month].pagado += invoiceValue;
-                } else if (inv.estado === 'Pendiente') {
-                    if (inv.fechaPromesaPago?.toDate) {
-                        const promiseDate = inv.fechaPromesaPago.toDate();
-                        promiseDate.setHours(0, 0, 0, 0);
-                        if (promiseDate < today) {
-                            monthlyARData[month].vencido += invoiceValue;
-                        } else if (promiseDate.getTime() === today.getTime()) {
-                            monthlyARData[month].venceHoy += invoiceValue;
-                        } else {
-                            monthlyARData[month].programado += invoiceValue;
-                        }
-                    } else {
-                        monthlyARData[month].pdteProgramacion += invoiceValue;
-                    }
-                }
-            }
-        });
-        
-        const monthlyPaidData = Array(12).fill(0);
-        invoices.forEach(inv => {
-            if (inv.tipo === 'cliente' && inv.estado === 'Pagada' && inv.fechaPagoReal?.toDate) {
-                const paymentDate = inv.fechaPagoReal.toDate();
-                if (paymentDate.getFullYear() === currentYear) {
-                    const paymentMonth = paymentDate.getMonth();
-                    monthlyPaidData[paymentMonth] += inv.monto || 0;
-                }
-            }
-        });
-
-        const weeklyCashFlowData = Array(8).fill(0).map(() => ({ ingresos: 0, egresos: 0 }));
-        const weeklyLabels = [];
-        const todayForWeeks = new Date();
-        for (let i = 0; i < 8; i++) {
-            const weekStartDate = new Date(todayForWeeks.getTime() + (i * 7 * oneDay));
-            weeklyLabels.push(`Sem ${i + 1} (${weekStartDate.getDate()}/${weekStartDate.getMonth() + 1})`);
-        }
-        invoices.forEach(inv => {
-            if (inv.estado === 'Pendiente' && inv.fechaPromesaPago?.toDate) {
-                const promiseDate = inv.fechaPromesaPago.toDate();
-                const diffDays = Math.floor((promiseDate - todayForWeeks) / oneDay);
-                const weekIndex = Math.floor(diffDays / 7);
-                if (weekIndex >= 0 && weekIndex < 8) {
-                    if (inv.tipo === 'cliente') { weeklyCashFlowData[weekIndex].ingresos += inv.monto || 0; }
-                    else if (inv.tipo === 'proveedor') { weeklyCashFlowData[weekIndex].egresos += inv.monto || 0; }
-                }
-            }
-        });
-
-        const techRevenueData = {};
-        technicians.forEach(t => {
-            techRevenueData[t.id] = {
-                label: t.nombreCompleto.split(' ')[0],
-                data: Array(12).fill(0),
-            };
-        });
-
-        projects.forEach(p => {
             const deliveryDate = p.fase2_fechaFinTecnico?.toDate() || p.fase1_fechaFinTecnico?.toDate();
-            
             if (deliveryDate && deliveryDate.getFullYear() === currentYear && p.asignadoTecnicosIds && p.asignadoTecnicosIds.length > 0) {
                 const month = deliveryDate.getMonth();
                 const amount = p.precioCotizacionCliente || 0;
-                const responsibleTechId = p.asignadoTecnicosIds[0]; 
-
+                const responsibleTechId = p.asignadoTecnicosIds[0];
                 if (techRevenueData[responsibleTechId]) {
                     techRevenueData[responsibleTechId].data[month] += amount;
                 }
             }
+
+            if ((p.precioCotizacionCliente || 0) > 0 && (p.costoProveedor || 0) >= 0) {
+                return (p.precioCotizacionCliente - p.costoProveedor) / p.precioCotizacionCliente;
+            }
+            if (p.fechaAsignacionTecnico?.toDate && (p.fase1_fechaFinTecnico?.toDate() || p.fechaFinTecnicoReal?.toDate())) {
+                const finDate = p.fase1_fechaFinTecnico?.toDate() || p.fechaFinTecnicoReal?.toDate();
+                totalDeliveryDays += (finDate - p.fechaAsignacionTecnico.toDate()) / oneDay;
+                completedProjects++;
+            }
         });
 
-        const colors = [
-            'rgba(54, 162, 235, 1)', 
-            'rgba(255, 99, 132, 1)', 
-            'rgba(75, 192, 192, 1)', 
-            'rgba(255, 206, 86, 1)',  
-            'rgba(153, 102, 255, 1)',
-            'rgba(255, 159, 64, 1)', 
-        ];
+        invoices.forEach(inv => {
+            const invoiceValue = inv.monto || 0;
+            
+            let calculatedStatus = 'Pend. de Autorización';
+            let promiseDate = null;
+            if (inv.estado === 'Pagada') { calculatedStatus = 'Pagada'; }
+            else if (inv.estado === 'Cancelada') { calculatedStatus = 'Cancelada'; }
+            else if (inv.fechaPromesaPago?.toDate) {
+                promiseDate = inv.fechaPromesaPago.toDate();
+                promiseDate.setHours(0, 0, 0, 0);
+                if (promiseDate < today) { calculatedStatus = 'Vencida'; }
+                else if (promiseDate.getTime() === today.getTime()) { calculatedStatus = 'Vence Hoy'; }
+                else { calculatedStatus = 'Prog. a Pago'; }
+            }
+            inv.estado = calculatedStatus;
+
+
+            if (inv.tipo === 'cliente') {
+
+                if (inv.fechaEmision?.toDate && inv.fechaEmision.toDate().getFullYear() === currentYear) {
+                    const month = inv.fechaEmision.toDate().getMonth();
+                    if (inv.estado !== 'Cancelada') {
+                        monthlyARData[month].totalFacturado += invoiceValue;
+                    }
+                    switch (inv.estado) {
+                        case 'Pagada': monthlyARData[month].pagado += invoiceValue; break;
+                        case 'Vencida': monthlyARData[month].vencido += invoiceValue; break;
+                        case 'Vence Hoy': monthlyARData[month].venceHoy += invoiceValue; break;
+                        case 'Prog. a Pago': monthlyARData[month].programado += invoiceValue; break;
+                        case 'Pend. de Autorización': monthlyARData[month].pdteProgramacion += invoiceValue; break;
+                        default: break;
+                    }
+                }
+
+                if (inv.estado === 'Pagada' && inv.fechaPagoReal?.toDate) {
+                    const paymentDate = inv.fechaPagoReal.toDate();
+                    if (paymentDate.getFullYear() === currentYear) {
+                        monthlyPaidData[paymentDate.getMonth()] += invoiceValue;
+                    }
+                }
+
+                if (promiseDate && (inv.estado === 'Prog. a Pago' || inv.estado === 'Vencida' || inv.estado === 'Vence Hoy')) {
+                    if (promiseDate.getFullYear() === currentYear) {
+                        monthlyProgrammedData[promiseDate.getMonth()] += invoiceValue;
+                    }
+                }
+            }
+
+            let weekIndex = -1;
+            
+            if (inv.estado === 'Vencida') {
+                weekIndex = 0;
+            } else if (inv.estado === 'Prog. a Pago' || inv.estado === 'Vence Hoy') {
+                const diffDays = Math.floor((promiseDate - today) / oneDay);
+                const calculatedIndex = Math.floor(diffDays / 7);
+                if (calculatedIndex >= 0 && calculatedIndex < 8) {
+                    weekIndex = calculatedIndex;
+                }
+            }
+
+            if (weekIndex >= 0) {
+                if (inv.tipo === 'cliente') {
+                    weeklyCashFlowData[weekIndex].ingresos += invoiceValue;
+                } else {
+                    weeklyCashFlowData[weekIndex].egresos += invoiceValue;
+                }
+            }
+            
+            const project = (inv.proyectoId && inv.proyectoId !== 'general') ? projectsMap.get(inv.proyectoId) : null;
+            const processedInv = {
+                ...inv,
+                planta: project?.ubicacionCliente || project?.clienteNombre || inv.clienteNombre || inv.proveedorNombre || 'N/A',
+                servicio: project?.servicioNombre || inv.descripcion || 'Gasto General',
+            };
+            if (inv.tipo === 'cliente') allAccountsReceivable.push(processedInv);
+            if (inv.tipo === 'proveedor') allAccountsPayable.push(processedInv);
+        });
+
+        const kpis = {
+            avgDeliveryDays: completedProjects > 0 ? (totalDeliveryDays / completedProjects).toFixed(1) : 0,
+            monthlyBillingData: monthlyARData,
+            monthlyPaidData: monthlyPaidData,
+            monthlyProgrammedData: monthlyProgrammedData
+        };
+
+        const weeklyLabels = [];
+        for (let i = 0; i < 8; i++) {
+            const weekStartDate = new Date(today.getTime() + (i * 7 * oneDay));
+            weeklyLabels.push(`Sem ${i + 1} (${weekStartDate.getDate()}/${weekStartDate.getMonth() + 1})`);
+        }
+
+        const colors = ['rgba(54, 162, 235, 1)', 'rgba(255, 99, 132, 1)', 'rgba(75, 192, 192, 1)', 'rgba(255, 206, 86, 1)', 'rgba(153, 102, 255, 1)', 'rgba(255, 159, 64, 1)'];
         const techDatasets = Object.values(techRevenueData).map((tech, index) => ({
             ...tech,
             borderColor: colors[index % colors.length],
             backgroundColor: colors[index % colors.length].replace('1)', '0.2)'),
-            fill: true,
-            tension: 0.1,
+            fill: true, tension: 0.1,
         }));
-
-        let totalMargin = 0, projectsWithFinancials = 0;
-        let totalDeliveryDays = 0, completedProjects = 0;
-        let totalActivationDays = 0, activatedProjects = 0;
-        projects.forEach(p => {
-            if ((p.precioCotizacionCliente || 0) > 0 && (p.costoProveedor || 0) >= 0) {
-                totalMargin += (p.precioCotizacionCliente - p.costoProveedor) / p.precioCotizacionCliente;
-                projectsWithFinancials++;
-            }
-            if (p.fechaAsignacionTecnico?.toDate && p.fechaFinTecnico1?.toDate) {
-                totalDeliveryDays += (p.fechaFinTecnico1.toDate() - p.fechaAsignacionTecnico.toDate()) / oneDay;
-                completedProjects++;
-            }
-            if (p.fechaApertura?.toDate && p.fechaAsignacionTecnico?.toDate) {
-                totalActivationDays += (p.fechaAsignacionTecnico.toDate() - p.fechaApertura.toDate()) / oneDay;
-                activatedProjects++;
-            }
-        });
-
-        const kpis = {
-            avgMargin: projectsWithFinancials > 0 ? ((totalMargin / projectsWithFinancials) * 100).toFixed(1) : 0,
-            avgDeliveryDays: completedProjects > 0 ? (totalDeliveryDays / completedProjects).toFixed(1) : 0,
-            avgActivationDays: activatedProjects > 0 ? (totalActivationDays / activatedProjects).toFixed(1) : 0,
-            monthlyBillingData: monthlyARData,
-            monthlyPaidData: monthlyPaidData
-        };
-
-        const techniciansMap = {};
-        technicians.forEach(t => {
-            techniciansMap[t.id] = t.nombreCompleto;
-        });
-
-        const projectsMap = new Map(projects.map(p => [p.id, p]));
         
         const allOperationalProjects = projects.map(p => {
             const responsableId = p.asignadoTecnicosIds?.[0];
             let deliveryStatus = p.estado;
+            let sortOrderValue = 99;
             if (p.estado === 'Activo') {
                 if (p.fechaFinTecnicoReal) {
-                    deliveryStatus = 'En Espera de Proveedor';
+                    deliveryStatus = 'En Espera de Proveedor'; sortOrderValue = 4;
                 } else {
                     const dueDate = p.fechaEntregaInterna?.toDate();
                     if (!dueDate) {
-                        deliveryStatus = 'Sin Fecha';
+                        deliveryStatus = 'Sin Fecha'; sortOrderValue = 5;
                     } else {
                         dueDate.setHours(0, 0, 0, 0);
                         const diffDays = (dueDate - today) / (1000 * 60 * 60 * 24);
-                        if (diffDays < 0) deliveryStatus = 'Atrasado';
-                        else if (diffDays <= 3) deliveryStatus = 'Por Vencer';
-                        else deliveryStatus = 'A Tiempo';
+                        if (diffDays < 0) { deliveryStatus = 'Atrasado'; sortOrderValue = 1; }
+                        else if (diffDays <= 3) { deliveryStatus = 'Por Vencer'; sortOrderValue = 2; }
+                        else { deliveryStatus = 'A Tiempo'; sortOrderValue = 3; }
                     }
                 }
             }
             return {
                 ...p,
-                responsableNombre: techniciansMap[responsableId] || 'No Encontrado',
-                notaEntregaNumero: p.fase1_numeroNotaInterna || p.fase2_numeroNotaInterna || 'No encontrada',
-                fechaEntregaReal: p.fase1_fechaFinTecnico || p.fase2_fechaFinTecnico || 'No encontrada',
+                responsableNombre: techniciansMap[responsableId] || 'No Asignado',
+                notaEntregaNumero: p.fase2_numeroNotaInterna || p.fase1_numeroNotaInterna || 'N/A',
+                fechaEntregaReal: p.fase1_fechaFinTecnico || p.fase2_fechaFinTecnico || p.fechaFinTecnicoReal,
                 deliveryStatus: deliveryStatus,
+                sortOrder: sortOrderValue,
             };
         });
 
-        const processInvoices = (invoiceType) => {
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            return invoices
-                .filter(inv => inv.tipo === invoiceType && inv.estado !== 'Pagada' && inv.estado !== 'Cancelada')
-                .map(inv => {
-                    const project = (inv.proyectoId && inv.proyectoId !== 'general') ? projectsMap.get(inv.proyectoId) : null;
-                    let calculatedStatus = 'Pend. de Autorización';
-                    if (inv.estado === 'Pagada') { calculatedStatus = 'Pagada'; }
-                    else if (inv.estado === 'Cancelada') { calculatedStatus = 'Cancelada'; }
-                    else if (inv.fechaPromesaPago?.toDate) {
-                        const promiseDate = inv.fechaPromesaPago.toDate();
-                        promiseDate.setHours(0, 0, 0, 0);
-                        if (promiseDate < today) { calculatedStatus = 'Vencida'; }
-                        else { calculatedStatus = 'Prog. a Pago'; }
-                    }
-                    return {
-                        ...inv,
-                        estado: calculatedStatus, 
-                        planta: project?.ubicacionCliente || project?.clienteNombre || inv.clienteNombre || inv.proveedorNombre || 'N/A',
-                        servicio: project?.servicioNombre || inv.descripcion || 'Gasto General',
-                    };
-                })
-                .sort((a, b) => {
-                    const dateA = a.fechaPromesaPago?.toDate() || new Date('2999-12-31');
-                    const dateB = b.fechaPromesaPago?.toDate() || new Date('2999-12-31');
-                    return dateA - dateB;
-                });
-        };
+        const accountsReceivableList = allAccountsReceivable
+            .filter(inv => inv.estado !== 'Pagada' && inv.estado !== 'Cancelada')
+            .sort((a, b) => (a.fechaPromesaPago?.toDate() || new Date('2999-12-31')) - (b.fechaPromesaPago?.toDate() || new Date('2999-12-31')));
         
-        const accountsReceivableList = processInvoices('cliente');
-        const accountsPayableList = processInvoices('proveedor');
-
+        const accountsPayableList = allAccountsPayable
+            .filter(inv => inv.estado !== 'Pagada' && inv.estado !== 'Cancelada')
+            .sort((a, b) => (a.fechaPromesaPago?.toDate() || new Date('2999-12-31')) - (b.fechaPromesaPago?.toDate() || new Date('2999-12-31')));
         return {
             kpis,
             pipeline: { labels, cotizacionData: monthlyProjectsData.map(m => m.cotizacion), activoData: monthlyProjectsData.map(m => m.activo), pendienteFacturaData: monthlyProjectsData.map(m => m.pendienteFactura), totalData: monthlyProjectsData.map(m => m.total) },
@@ -2981,8 +2965,8 @@ const DirectivoDashboard = () => {
                 techniciansOldSnapshot.forEach(doc => techMap.set(doc.id, { id: doc.id, ...doc.data() }));
                 techniciansNewSnapshot.forEach(doc => techMap.set(doc.id, { id: doc.id, ...doc.data() }));
                 const allTechnicians = Array.from(techMap.values());
-                
-                const processedData = processDataForDashboard(allProjects, allInvoices, allTechnicians);
+
+                const processedData = processDataForDashboard(allProjects, allInvoices, allTechnicians, );
                 setDashboardData(processedData);
 
             } catch (err) {
@@ -3038,8 +3022,22 @@ const DirectivoDashboard = () => {
                 <>
                     {dashboardData?.kpis && (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-                            <KPIWidget title="Margen Promedio" value={dashboardData.kpis.avgMargin} unit="%" />
                             <KPIWidget title="Tiempo Prom. Entrega" value={dashboardData.kpis.avgDeliveryDays} unit="días" />
+                            {/*Widget de programado a pago del mes corriente */}
+                            {(() => {
+                                const currentMonthIndex = new Date().getMonth();
+                                const kpiValue = dashboardData.kpis.monthlyProgrammedData[currentMonthIndex];
+                                const kpiLabel = monthNames[currentMonthIndex];
+
+                                return (
+                                    <div className="bg-white p-5 rounded-xl shadow-md">
+                                        <h3 className="font-bold text-gray-500">Programado ({kpiLabel})</h3>
+                                        <p className="text-3xl font-bold mt-2">
+                                            {kpiValue.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}
+                                        </p>
+                                    </div>
+                                );
+                            })()}
                             {/* Widget de pagado en el mes y los dos anteriores */}
                             {(() => {
                                 const currentMonthIndex = new Date().getMonth();
@@ -3426,83 +3424,6 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
     );
 };
 
-/*
-// Componente para agregar tabla de proyectos terminados al dashboard del supervisor
-const DeliveredProjectsTable = ({ projects }) => {
-    const [searchTerm, setSearchTerm] = useState('');
-    const [currentPage, setCurrentPage] = useState(1);
-    const [itemsPerPage, setItemsPerPage] = useState(10);
-
-    const filteredProjects = projects.filter(p =>
-        (p.npu && p.npu.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (p.clienteNombre && p.clienteNombre.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (p.servicioNombre && p.servicioNombre.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
-
-    const indexOfLastItem = currentPage * itemsPerPage;
-    const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-    const currentItems = filteredProjects.slice(indexOfFirstItem, indexOfLastItem);
-    const totalPages = Math.ceil(filteredProjects.length / itemsPerPage);
-    const paginate = (pageNumber) => setCurrentPage(pageNumber);
-
-    return (
-        <div className="mt-6">
-            <div className="mb-4 flex flex-col md:flex-row justify-between items-center">
-                <input
-                    type="text"
-                    placeholder="Buscar por NPU, cliente o servicio..."
-                    className="w-full md:w-1/3 px-3 py-2 border border-gray-300 rounded-md mb-2 md:mb-0"
-                    onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-                />
-                <div className="flex items-center">
-                    <span className="text-sm mr-2">Mostrar:</span>
-                    <select value={itemsPerPage} onChange={(e) => { setItemsPerPage(Number(e.target.value)); setCurrentPage(1); }} className="px-2 py-1 border border-gray-300 rounded-md">
-                        <option value={10}>10</option>
-                        <option value={25}>25</option>
-                        <option value={50}>50</option>
-                    </select>
-                </div>
-            </div>
-
-            <div className="overflow-x-auto bg-white rounded-lg shadow">
-                <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                        <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha de Entrega</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Documentos</th>
-                        </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                        {currentItems.map(project => (
-                            <tr key={project.id}>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{project.npu}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{project.clienteNombre}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{project.servicioNombre}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{formatDate(project.fechaFinTecnico2 || project.fechaFinTecnico1)}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-4">
-                                    {(project.urlNotaPdf2 || project.urlNotaPdf1) && <a href={project.urlNotaPdf2 || project.urlNotaPdf1} target="_blank" rel="noopener noreferrer" className="text-red-600 hover:text-red-800">Nota</a>}
-                                    {project.urlHeyzine && <a href={project.urlHeyzine} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800">Documento</a>}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-            <div className="mt-4 flex justify-between items-center">
-                <span className="text-sm text-gray-700">Página {currentPage} de {totalPages}</span>
-                <div>
-                    <button onClick={() => paginate(currentPage - 1)} disabled={currentPage === 1} className="px-3 py-1 border rounded-md bg-white mr-2 disabled:opacity-50">Anterior</button>
-                    <button onClick={() => paginate(currentPage + 1)} disabled={currentPage === totalPages || totalPages === 0} className="px-3 py-1 border rounded-md bg-white disabled:opacity-50">Siguiente</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-*/
-
 //para las tarjetas de salud de los tecnicos que se visualizan en el panel del supervisor
 const TechnicianHealthCard = ({ techData }) => {
     const {
@@ -3744,13 +3665,16 @@ const SupervisorDashboard = ({ user, userData, selectedRole }) => {
 const TecnicoDashboard = ({ user, userData, selectedRole, setIsWorkingState }) => {
     const [projects, setProjects] = useState([]);
     const [loadingProjects, setLoadingProjects] = useState(true);
+
     const [activeTaskInfo, setActiveTaskInfo] = useState(null);
+    const [isOnBreak, setIsOnBreak] = useState(null);    
     const [loadingTask, setLoadingTask] = useState(true);
+
     const [modalProject, setModalProject] = useState(null);
     const [modalType, setModalType] = useState('');
     const [confirmingAction, setConfirmingAction] = useState(null);
     const [showNewProjectsAlert, setShowNewProjectsAlert] = useState(true);
-    const [isOnBreak, setIsOnBreak] = useState(null);
+
     const isSameDay = (date1, date2) => {
         if (!date1 || !date2) return false;
         return date1.getFullYear() === date2.getFullYear() &&
@@ -3822,6 +3746,41 @@ const TecnicoDashboard = ({ user, userData, selectedRole, setIsWorkingState }) =
             enDescanso: deleteField(),
         });
     }, [isOnBreak, handleStartWork, user]);
+/*
+    useEffect(() => {
+        setLoadingTask(true);
+        setIsWorkingState(false); // Estado inicial por defecto
+
+        const taskData = userData?.tareaActiva;
+        const breakData = userData?.enDescanso;
+
+        setIsOnBreak(breakData || null);
+
+        if (taskData && taskData.projectId) {
+            // Si hay tarea, buscamos los detalles del proyecto (una sola vez)
+            const projDocRef = doc(db, PROYECTOS_COLLECTION, taskData.projectId);
+            getDoc(projDocRef).then(projDoc => {
+                setActiveTaskInfo({
+                    ...taskData,
+                    projectId: projDoc.id,
+                    projectDetails: projDoc.exists() ? { id: projDoc.id, ...projDoc.data() } : null,
+                });
+                setIsWorkingState(true); // Está trabajando
+                setLoadingTask(false);
+            }).catch(err => {
+                console.error("Error fetching active project:", err);
+                setLoadingTask(false);
+                setIsWorkingState(false);
+            });
+        } else {
+            setActiveTaskInfo(null);
+            // Si está en descanso, no está "trabajando activamente"
+            setIsWorkingState(!!breakData); 
+            setLoadingTask(false);
+        }
+    }, [userData, setIsWorkingState]);
+*/
+
 
     useEffect(() => {
         if (!user?.uid) {
@@ -5286,16 +5245,21 @@ export default function App() {
 
     // Este efecto se ejecuta una vez para verificar si hay una sesión activa.
     useEffect(() => {
+        let unsubscribeSnapshot = () => {};
+
         const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-            let unsubscribeSnapshot = () => {};
+            unsubscribeSnapshot(); 
+
             if (currentUser) {
+                setLoading(true);
                 const userDocRef = doc(db, "usuarios", currentUser.uid);
+                
                 unsubscribeSnapshot = onSnapshot(userDocRef, (userDoc) => {
                     if (userDoc.exists()) {
                         const data = userDoc.data();
                         setUserData(data);
                         setUser(currentUser);
-                        
+
                         if (data.roles && data.roles.length > 0) {
                             setSelectedRole(data.roles[0]);
                         } else if (data.rol) {
@@ -5318,25 +5282,26 @@ export default function App() {
                         } else {
                             setLoading(false);
                         }
-
                     } else { 
                         signOut(auth); 
                         setLoading(false);
                     }
                 }, (error) => { 
-                    console.error("Error:", error); 
-                    signOut(auth); 
-                    setLoading(false);
+                    console.error("Error en listener de usuario (normal al salir):", error.message); 
+                    setLoading(false); 
                 });
             } else {
                 setUser(null); setUserData(null); setSelectedRole(null);
                 setSelectedClientProfile(null);
+                setIsTechnicianCurrentlyWorking(false);
                 setLoading(false);
             }
-            
-            return () => unsubscribeSnapshot(); 
         });
-        return () => unsubscribeAuth();
+        
+        return () => {
+            unsubscribeAuth();
+            unsubscribeSnapshot();
+        };
     }, []);
 
     useEffect(() => {

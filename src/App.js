@@ -586,63 +586,6 @@ const ProjectManagementModal = ({ project, onClose, onUpdate, user, userData, us
     );
 };
 
-
-// componente para filtrado avanzado, para cambiar la busqueda simple
-/*
-const ProjectFilters = ({ projects, techniciansMap, onFilterChange }) => {
-    const clients = [...new Set(projects.map(p => p.clienteNombre))].sort();
-    const technicianList = Object.entries(techniciansMap || {}).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
-
-    const handleFilter = (filterName, value) => {
-        onFilterChange(filterName, value);
-    };
-
-    return (
-        <div className="bg-gray-50 p-4 rounded-lg mb-6 border flex flex-wrap items-center gap-x-6 gap-y-4">
-            <span className="font-semibold text-gray-700">Filtrar por:</span>
-            
-            <div>
-                <label htmlFor="npu-filter" className="text-sm font-medium text-gray-600 mr-2">NPU:</label>
-                <input
-                    id="npu-filter"
-                    type="text"
-                    onChange={(e) => handleFilter('npu', e.target.value)}
-                    placeholder="Buscar NPU..."
-                    className="border-gray-300 rounded-md p-2 text-sm"
-                />
-            </div>
-
-            <div>
-                <label htmlFor="client-filter" className="text-sm font-medium text-gray-600 mr-2">Cliente:</label>
-                <select id="client-filter" onChange={(e) => handleFilter('cliente', e.target.value)} className="border-gray-300 rounded-md p-2 text-sm">
-                    <option value="">Todos</option>
-                    {clients.map(client => <option key={client} value={client}>{client}</option>)}
-                </select>
-            </div>
-
-            <div>
-                <label htmlFor="tech-filter" className="text-sm font-medium text-gray-600 mr-2">Técnico:</label>
-                <select id="tech-filter" onChange={(e) => handleFilter('tecnico', e.target.value)} className="border-gray-300 rounded-md p-2 text-sm">
-                    <option value="">Todos</option>
-                    {technicianList.map(tech => <option key={tech.id} value={tech.id}>{tech.name}</option>)}
-                </select>
-            </div>
-
-             <div>
-                <label htmlFor="status-filter" className="text-sm font-medium text-gray-600 mr-2">Estado:</label>
-                <select id="status-filter" onChange={(e) => handleFilter('estadoEntrega', e.target.value)} className="border-gray-300 rounded-md p-2 text-sm">
-                    <option value="">Todos</option>
-                    <option value="Atrasado">Atrasado</option>
-                    <option value="Por Vencer">Por Vencer</option>
-                    <option value="A Tiempo">A Tiempo</option>
-                    <option value="Sin Fecha">Sin Fecha</option>
-                </select>
-            </div>
-        </div>
-    );
-};
-*/
-
 // modal para acciones que necesitan una razón por escrito (ej. rechazar un proyecto).
 const ActionWithReasonModal = ({ title, message, onConfirm, onCancel, confirmText = "Confirmar", cancelText = "Cancelar", confirmColor = "bg-orange-600" }) => {
     const [reason, setReason] = useState('');
@@ -1334,6 +1277,7 @@ const ProjectsShelf = ({ projects, onOpenModal }) => {
     );
 };
 
+// Forms para altas de proyectos, usuarios y servicios 
 const NewProjectForm = ({ onProjectAdded }) => {
     const [formData, setFormData] = useState({
         clienteId: '',
@@ -1544,7 +1488,6 @@ const ProjectsTable = ({projects, onUpdateProject, userRole, supervisorView, onM
     const [expandedRowId, setExpandedRowId] = useState(null);
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
-    const [techniciansMap, setTechniciansMap] = useState({});
     const [invoicesMap, setInvoicesMap] = useState({});
     const [confirmingAction, setConfirmingAction] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
@@ -1562,7 +1505,6 @@ const ProjectsTable = ({projects, onUpdateProject, userRole, supervisorView, onM
                             techMap[doc.id] = doc.data().nombreCompleto;
                         }
                     });
-                    setTechniciansMap(techMap);
                 });
             });
             const qInvoices = query(collection(db, "facturas"));
@@ -1768,10 +1710,14 @@ const ProjectsTable = ({projects, onUpdateProject, userRole, supervisorView, onM
                                                     <div>
                                                         <p className="font-semibold">Estado Detallado:</p>
                                                         {project.fechaFinTecnicoReal ? (
-                                                            <p className="text-purple-800">Técnico finalizó el {formatDate(project.fechaFinTecnicoReal)}. En espera de proveedor.</p>
+                                                            <p className="text-purple-800">EL técnico finalizó el dia {formatDate(project.fechaFinTecnicoReal)}, en espera de proveedor o resolutivo.</p>
                                                         ) : (
                                                             <p className="text-gray-600">El técnico está trabajando en el proyecto.</p>
                                                         )}
+                                                    </div>
+                                                    <div className="col-span-3 bg-yellow-50 p-3 rounded-md border border-yellow-200">
+                                                        <p className="font-semibold text-yellow-800">Comentarios</p>
+                                                        <p className="text-gray-700 whitespace-pre-wrap mt-1">{project.comentariosApertura || 'Sin instrucciones específicas.'}</p>
                                                     </div>
                                                     <div className="col-span-full"><p className="font-semibold">Notas del Supervisor:</p><p className="text-gray-600 whitespace-pre-wrap">{project.notasSupervisor || 'No hay notas.'}</p></div>
                                                         {isEcotech && (
@@ -3236,6 +3182,7 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
         const [guiaRegreso, setGuiaRegreso] = useState(project.datosEcotech?.numeroGuiaRegreso || '');
         const [fechaMuestreo, setFechaMuestreo] = useState(project.datosEcotech?.fechaMuestreo || '');
         const [loading, setLoading] = useState(false);
+        const currentStatus = project.datosEcotech?.estatus || 'Pendiente';
         
         const handleUpdateStatus = async (updateData) => {
             setLoading(true);
@@ -3260,6 +3207,7 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
                     "datosEcotech.notas": notes,
                     "datosEcotech.numeroGuiaEnvio": guiaEnvio,
                     "datosEcotech.numeroGuiaRegreso": guiaRegreso,
+                    "datosEcotech.estatus": currentStatus
                 });
                 onFinalized();
             } catch (err) { alert("No se pudieron guardar los cambios."); }
@@ -3277,39 +3225,36 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
                 <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-lg">
                     <h3 className="text-lg font-bold mb-2">Gestionar Proyecto Ecotech: {project.npu}</h3>
                     <p className="text-sm text-gray-500 mb-6">Estado actual: <span className="font-bold">{project.datosEcotech?.estatus || 'Pendiente'}</span></p>
-                    
-                    <div className="space-y-4 mb-6">
-                        {project.datosEcotech?.estatus === 'Pendiente' && (
-                            <button onClick={handleStart} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg">Empezar Tarea</button>
-                        )}
-                        {project.datosEcotech?.estatus === 'Pend. No de proyecto' && (
-                            <div className="p-4 border rounded-md bg-gray-50">
-                                <label className="block text-sm font-medium">Introduce la Fecha de Muestreo</label>
-                                <input type="date" value={fechaMuestreo} onChange={e => setFechaMuestreo(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
-                                <button onClick={handleSaveSamplingDate} disabled={!fechaMuestreo} className="w-full mt-3 bg-blue-600 text-white font-bold py-2 rounded-lg disabled:bg-gray-400">Guardar Fecha y Poner "En Proceso"</button>
-                            </div>
-                        )}
-                        {project.datosEcotech?.estatus === 'En Proceso' && (
-                            <button onClick={handleSendDigital} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg">Marcar como "Enviado Digitalmente"</button>
-                        )}
-                        {project.datosEcotech?.estatus === 'Enviado Dig.' && (
-                            <div className="p-4 border rounded-md bg-gray-50">
-                                <label className="block text-sm font-medium">Introduce la Guía de Envío Físico</label>
-                                <input type="text" value={guiaEnvio} onChange={e => setGuiaEnvio(e.target.value)} placeholder="Número de guía..." className="mt-1 block w-full px-3 py-2 border rounded-md"/>
-                                <button onClick={handleSendPhysical} disabled={!guiaEnvio} className="w-full mt-3 bg-blue-600 text-white font-bold py-2 rounded-lg disabled:bg-gray-400">Marcar como "Enviado Físicamente"</button>
-                            </div>
-                        )}
-                        {project.datosEcotech?.estatus === 'Enviado Físicamente' && (
-                            <div className="p-4 border rounded-md bg-gray-50">
-                                <label className="block text-sm font-medium">Introduce la Guía de Regreso para Finalizar</label>
-                                <input type="text" value={guiaRegreso} onChange={e => setGuiaRegreso(e.target.value)} placeholder="Número de guía..." className="mt-1 block w-full px-3 py-2 border rounded-md"/>
-                                <button onClick={handleFinishProject} disabled={!guiaRegreso} className="w-full mt-3 bg-green-600 text-white font-bold py-2 rounded-lg disabled:bg-gray-400">Finalizar Proyecto</button>
-                            </div>
-                        )}
-                    </div>
 
-                    <div className="space-y-4 border-t pt-6">
-                        <h4 className="text-md font-semibold text-gray-800">Información Adicional</h4>
+                    {currentStatus === 'Pendiente' && (
+                        <button onClick={handleStart} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg mb-4">Empezar Tarea</button>
+                    )}
+
+                    {currentStatus === 'Pend. No de proyecto' && (
+                        <div className="p-4 border rounded-md bg-gray-50 mb-4">
+                            <label className="block text-sm font-medium text-gray-700">Introduce la Fecha de Muestreo</label>
+                            <input type="date" value={fechaMuestreo} onChange={e => setFechaMuestreo(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
+                            <button onClick={handleSaveSamplingDate} disabled={!fechaMuestreo} className="w-full mt-3 bg-blue-600 text-white font-bold py-2 rounded-lg disabled:bg-gray-400">Guardar Fecha y Poner "En Proceso"</button>
+                        </div>
+                    )}
+                    {currentStatus === 'En Proceso' && (
+                        <button onClick={handleSendDigital} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg mb-4">Marcar como "Enviado Digitalmente"</button>
+                    )}
+                    {currentStatus === 'Enviado Dig.' && (
+                         <div className="p-4 border rounded-md bg-gray-50 mb-4">
+                            <label className="block text-sm font-medium">Introduce la Guía de Envío Físico</label>
+                            <input type="text" value={guiaEnvio} onChange={e => setGuiaEnvio(e.target.value)} placeholder="Número de guía..." className="mt-1 block w-full px-3 py-2 border rounded-md"/>
+                            <button onClick={handleSendPhysical} disabled={!guiaEnvio} className="w-full mt-3 bg-blue-600 text-white font-bold py-2 rounded-lg disabled:bg-gray-400">Marcar como "Enviado Físicamente"</button>
+                        </div>
+                    )}
+                    {currentStatus === 'Enviado Físicamente' && (
+                         <div className="p-4 border rounded-md bg-gray-50 mb-4">
+                            <label className="block text-sm font-medium">Introduce la Guía de Regreso para Finalizar</label>
+                            <input type="text" value={guiaRegreso} onChange={e => setGuiaRegreso(e.target.value)} placeholder="Número de guía..." className="mt-1 block w-full px-3 py-2 border rounded-md"/>
+                            <button onClick={handleFinishProject} disabled={!guiaRegreso} className="w-full mt-3 bg-green-600 text-white font-bold py-2 rounded-lg disabled:bg-gray-400">Finalizar Proyecto</button>
+                        </div>
+                    )}
+                    <div className="space-y-4">
                         <div>
                             <label className="block text-sm font-medium">Número de Proyecto (Laboratorio)</label>
                             <input type="text" value={labProjectNumber} onChange={e => setLabProjectNumber(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
@@ -3317,6 +3262,14 @@ const EcotechProjectsTable = ({ projects, onUpdateProject }) => {
                         <div>
                             <label className="block text-sm font-medium">Puntos de Trabajo</label>
                             <input type="number" value={workPoints} onChange={e => setWorkPoints(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium">Nº de Guía (Envío)</label>
+                            <input type="text" value={guiaEnvio} onChange={e => setGuiaEnvio(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium">Nº de Guía (Regreso)</label>
+                            <input type="text" value={guiaRegreso} onChange={e => setGuiaRegreso(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
                         </div>
                         <div>
                             <label className="block text-sm font-medium">Notas</label>
@@ -3490,8 +3443,7 @@ const TechnicianHealthCard = ({ techData }) => {
     );
 };
 
-// El dashboard del Supervisor. Aquí ve los proyectos nuevos para asignar
-// y monitorea el progreso de los que ya están en proceso.
+// El dashboard del Supervisor. Aquí ve los proyectos nuevos para asignar y monitorea el progreso de los que ya están en proceso.
 const SupervisorDashboard = ({ user, userData, selectedRole }) => {
     const [view, setView] = useState('new');
     const [allProjects, setAllProjects] = useState([]);
@@ -3660,8 +3612,7 @@ const SupervisorDashboard = ({ user, userData, selectedRole }) => {
     );
 };
 
-// El dashboard del Técnico. Su lista de tareas pendientes y en proceso.
-// Desde aquí empieza a trabajar, usa la bitácora y finaliza sus tareas.
+// El dashboard del Técnico. Su lista de tareas pendientes y en proceso desde aquí empieza a trabajar, usa la bitácora y finaliza sus tareas.
 const TecnicoDashboard = ({ user, userData, selectedRole, setIsWorkingState }) => {
     const [projects, setProjects] = useState([]);
     const [loadingProjects, setLoadingProjects] = useState(true);
@@ -3746,41 +3697,6 @@ const TecnicoDashboard = ({ user, userData, selectedRole, setIsWorkingState }) =
             enDescanso: deleteField(),
         });
     }, [isOnBreak, handleStartWork, user]);
-/*
-    useEffect(() => {
-        setLoadingTask(true);
-        setIsWorkingState(false); // Estado inicial por defecto
-
-        const taskData = userData?.tareaActiva;
-        const breakData = userData?.enDescanso;
-
-        setIsOnBreak(breakData || null);
-
-        if (taskData && taskData.projectId) {
-            // Si hay tarea, buscamos los detalles del proyecto (una sola vez)
-            const projDocRef = doc(db, PROYECTOS_COLLECTION, taskData.projectId);
-            getDoc(projDocRef).then(projDoc => {
-                setActiveTaskInfo({
-                    ...taskData,
-                    projectId: projDoc.id,
-                    projectDetails: projDoc.exists() ? { id: projDoc.id, ...projDoc.data() } : null,
-                });
-                setIsWorkingState(true); // Está trabajando
-                setLoadingTask(false);
-            }).catch(err => {
-                console.error("Error fetching active project:", err);
-                setLoadingTask(false);
-                setIsWorkingState(false);
-            });
-        } else {
-            setActiveTaskInfo(null);
-            // Si está en descanso, no está "trabajando activamente"
-            setIsWorkingState(!!breakData); 
-            setLoadingTask(false);
-        }
-    }, [userData, setIsWorkingState]);
-*/
-
 
     useEffect(() => {
         if (!user?.uid) {
@@ -4060,6 +3976,14 @@ const TecnicoDashboard = ({ user, userData, selectedRole, setIsWorkingState }) =
                 <p className="text-sm text-gray-600">{project.clienteNombre}</p>
                 <p className="text-sm text-gray-400">{project.npu}</p>
                 <p className="text-xs text-gray-400 mt-2">Prioridad: <span className="font-semibold">{project.prioridad || 'N/A'}</span></p>
+                {project.comentariosApertura && (
+                    <div className="mt-2 mb-2 p-2 bg-gray-50 rounded text-xs text-gray-600 italic border border-gray-100">
+                        <span className="font-bold not-italic">Nota: </span>
+                        {project.comentariosApertura.length > 60 
+                            ? project.comentariosApertura.substring(0, 60) + '...' 
+                            : project.comentariosApertura}
+                    </div>
+                )}
                 <button
                     onClick={() => handleStartWork(project.id)}
                     disabled={isWorkingOnThis || isOnBreak}
@@ -4072,13 +3996,27 @@ const TecnicoDashboard = ({ user, userData, selectedRole, setIsWorkingState }) =
     };
     
     const ActiveProjectTools = ({ project }) => {
-        if (!project) return null;
+        if (!project || !project.projectDetails) return null;
+        const details = project.projectDetails;
         const isInternalProvider = project.projectDetails.proveedorNombre?.toLowerCase().includes('ecologia');
         const isSoftFinished = !!project.projectDetails.fechaFinTecnicoReal;
         
         return (
             <div className="bg-white p-6 rounded-lg shadow-lg">
-                <h3 className="text-lg font-bold mb-4">Herramientas para: {project.projectDetails.npu}</h3>
+                <div>
+                    <h3 className="text-lg font-bold text-gray-900 mb-1">Herramientas de Trabajo</h3>
+                    <p className="text-sm text-gray-500">{details.npu}</p>
+                </div>
+                <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-r-md">
+                    <div className="flex">
+                        <div className="ml-3">
+                            <h3 className="text-sm font-medium text-yellow-800">Instrucciones del Proyecto</h3>
+                            <div className="mt-2 text-sm text-yellow-700">
+                                <p className="whitespace-pre-wrap">{details.comentariosApertura || "No hay instrucciones adicionales para este proyecto."}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <div className="space-y-4">
                     <button onClick={() => { setModalProject(project.projectDetails); setModalType('log'); }} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-600 hover:bg-gray-700">Ver Bitácora</button>
 
@@ -4540,9 +4478,9 @@ const PendingInvoicesTable = ({ projects, onUpdate }) => {
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Docs Admin</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Factura Cliente</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Factura Proveedor</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ref. Documentos</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Montos</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Facturas</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
                         </tr>
                     </thead>
@@ -4552,10 +4490,26 @@ const PendingInvoicesTable = ({ projects, onUpdate }) => {
                                 <td className="px-6 py-4">{project.npu}</td>
                                 <td className="px-6 py-4">{project.clienteNombre}</td>
                                 <td className="px-6 py-4">{project.servicioNombre}</td>
-                                <td className="px-6 py-4"><div className="flex space-x-2 text-sm">{project.urlCotizacionCliente && <a href={project.urlCotizacionCliente} target="_blank" rel="noopener noreferrer" className="text-blue-500">Cot.C</a>}{project.urlPOCliente && <a href={project.urlPOCliente} target="_blank" rel="noopener noreferrer" className="text-blue-500">PO.C</a>}</div></td>
-                                <td className="px-6 py-4">{project.facturaClienteId ? <span className="text-green-600">✓ Adjuntada</span> : <span className="text-orange-500">Pendiente</span>}</td>
-                                <td className="px-6 py-4">{project.proveedorNombre?.toLowerCase().includes("ecologia") ? <span className="text-gray-500">N/A</span> : project.facturaProveedorId ? <span className="text-green-600">✓ Adjuntada</span> : <span className="text-orange-500">Pendiente</span>}</td>
-                                <td className="px-6 py-4"><button onClick={() => setModalProject(project)} className="text-indigo-600 hover:text-indigo-900">Gestionar Facturas</button></td>
+                                <td className="px-4 py-2 text-xs text-gray-700">
+                                    <div className="space-y-1">
+                                        <p><span className="font-bold text-gray-600">NE:</span> {project.fase1_numeroNotaInterna || 'N/A'}</p>
+                                        <p className="border-t mt-1 pt-1"><span className="font-bold text-blue-600">Cliente:</span> {project.poClienteRef || 'N/A'}</p>
+                                        <p><span className="font-bold text-gray-500">Prov:</span> {project.poProveedor || 'N/A'}</p>
+                                    </div>
+                                </td>
+                                <td className="px-4 py-2 text-sm">
+                                    <div className="flex flex-col">
+                                        <span className="text-green-600 font-semibold">${project.precioCotizacionCliente?.toFixed(2)}</span>
+                                        <span className="text-red-500 text-xs">${project.costoProveedor?.toFixed(2)}</span>
+                                    </div>
+                                </td>
+                                <td className="px-4 py-2 text-sm">
+                                    <div className="flex flex-col">
+                                        <div className="px-6 py-4">{project.facturaClienteId ? <span className="text-green-600">✓ Adjuntada</span> : <span className="text-orange-500">Pendiente</span>}</div>
+                                        <div className="px-6 py-4">{project.proveedorNombre?.toLowerCase().includes("ecologia") ? <span className="text-gray-500">N/A</span> : project.facturaProveedorId ? <span className="text-green-600">✓ Adjuntada</span> : <span className="text-orange-500">Pendiente</span>}</div>
+                                    </div>
+                                </td>
+                                <td className="px-6 py-4"><button onClick={() => setModalProject(project)} className="text-indigo-600 hover:text-indigo-900">Gestionar</button></td>
                             </tr>
                         ))}
                     </tbody>
@@ -4900,8 +4854,7 @@ const InvoicesList = ({ invoiceType, onUpdate }) => {
     );
 };
 
-// El dashboard del Practicante. Recibe los proyectos terminados por los técnicos
-// para preparar los entregables finales para el cliente.
+// El dashboard del Practicante. Recibe los proyectos terminados por los técnicos para preparar los entregables finales para el cliente.
 const PracticanteDashboard = () => {
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -5160,8 +5113,216 @@ const PracticanteDashboard = () => {
     );
 };
 
-// Este es el "router" principal. Recibe el rol activo del usuario
-// y decide qué dashboard específico debe mostrar.
+// Dashboard para revisar antecedentes de proyectos, un listado completo de proyectos antiguos
+const AntecedentesDashboard = () => {
+    const [projects, setProjects] = useState([]);
+    const [invoicesMap, setInvoicesMap] = useState({});
+    const [loading, setLoading] = useState(true);
+    const [npuFilter, setNpuFilter] = useState('');
+    const [serviceFilter, setServiceFilter] = useState('');
+    const [clientFilter, setClientFilter] = useState('');
+    const [providerFilter, setProviderFilter] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage] = useState(10);
+
+    useEffect(() => {
+        const fetchData = async () => {
+            setLoading(true);
+            try {
+                const currentYear = new Date().getFullYear();
+                const startYear = currentYear - 2;
+                const startDate = new Date(startYear, 0, 1);
+                const timestampStart = Timestamp.fromDate(startDate);
+
+                const qProjects = query(
+                    collection(db, PROYECTOS_COLLECTION),
+                    where("fechaApertura", ">=", timestampStart),
+                    orderBy("fechaApertura", "desc")
+                );
+
+                const qInvoices = query(collection(db, "facturas"));
+
+                const [projectsSnap, invoicesSnap] = await Promise.all([
+                    getDocs(qProjects),
+                    getDocs(qInvoices)
+                ]);
+
+                const projectsData = projectsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                
+                const invMap = {};
+                invoicesSnap.forEach(doc => {
+                    invMap[doc.id] = doc.data().folio;
+                });
+
+                setProjects(projectsData);
+                setInvoicesMap(invMap);
+
+            } catch (err) {
+                console.error("Error cargando antecedentes:", err);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchData();
+    }, []);
+
+    const uniqueServices = React.useMemo(() => {
+        const services = projects.map(p => p.servicioNombre).filter(Boolean);
+        return [...new Set(services)].sort();
+    }, [projects]);
+
+    const uniqueClients = React.useMemo(() => {
+        const clients = projects.map(p => p.clienteNombre).filter(Boolean);
+        return [...new Set(clients)].sort();
+    }, [projects]);
+
+    const uniqueProviders = React.useMemo(() => {
+        const providers = projects.map(p => p.proveedorNombre).filter(Boolean);
+        return [...new Set(providers)].sort();
+    }, [projects]);
+
+    const filteredProjects = projects.filter(p => {
+        const matchNPU = !npuFilter || 
+            (p.npu && p.npu.toLowerCase().includes(npuFilter.toLowerCase()));
+            
+        const matchClient = !clientFilter || p.clienteNombre === clientFilter;
+        const matchProvider = !providerFilter || p.proveedorNombre === providerFilter;
+        const matchService = !serviceFilter || p.servicioNombre === serviceFilter;
+
+        return matchNPU && matchClient && matchProvider && matchService;
+    });
+
+    const indexOfLastItem = currentPage * itemsPerPage;
+    const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+    const currentItems = filteredProjects.slice(indexOfFirstItem, indexOfLastItem);
+    const totalPages = Math.ceil(filteredProjects.length / itemsPerPage);
+    const paginate = (pageNumber) => setCurrentPage(pageNumber);
+
+    return (
+        <div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-6">
+                Historial de Proyectos ({new Date().getFullYear() - 2} - {new Date().getFullYear()})
+            </h1>
+
+            <div className="mb-6 p-4 bg-gray-50 rounded-lg border flex flex-wrap items-center gap-4">
+                <div className="flex-1 min-w-[200px]">
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Buscar NPU</label>
+                    <input
+                        type="text"
+                        placeholder="Escribe el NPU..."
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                        value={npuFilter}
+                        onChange={(e) => { setNpuFilter(e.target.value); setCurrentPage(1); }}
+                    />
+                </div>
+                
+                <div className="w-full md:w-auto">
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar por Cliente</label>
+                    <select 
+                        className="w-full md:w-48 px-3 py-2 border border-gray-300 rounded-md text-sm"
+                        value={clientFilter}
+                        onChange={(e) => { setClientFilter(e.target.value); setCurrentPage(1); }}
+                    >
+                        <option value="">Todos los Clientes</option>
+                        {uniqueClients.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                </div>
+
+                <div className="w-full md:w-auto">
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar por Servicio</label>
+                    <select 
+                        className="w-full md:w-48 px-3 py-2 border border-gray-300 rounded-md text-sm"
+                        value={serviceFilter}
+                        onChange={(e) => { setServiceFilter(e.target.value); setCurrentPage(1); }}
+                    >
+                        <option value="">Todos los Servicios</option>
+                        {uniqueServices.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                </div>
+
+                <div className="w-full md:w-auto">
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Filtrar por Proveedor</label>
+                    <select 
+                        className="w-full md:w-48 px-3 py-2 border border-gray-300 rounded-md text-sm"
+                        value={providerFilter}
+                        onChange={(e) => { setProviderFilter(e.target.value); setCurrentPage(1); }}
+                    >
+                        <option value="">Todos los Proveedores</option>
+                        {uniqueProviders.map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                </div>
+            </div>
+
+            {loading ? <p>Cargando archivo histórico...</p> : (
+                <div className="overflow-x-auto bg-white rounded-lg shadow">
+                    <table className="min-w-full divide-y divide-gray-200 text-sm">
+                        <thead className="bg-gray-50 text-gray-500 mb-1">
+                            <tr>
+                                <th className="px-4 py-3 text-left font-medium uppercase tracking-wider">Cliente</th>
+                                <th className="px-4 py-3 text-left font-medium uppercase tracking-wider">NPU</th>
+                                <th className="px-4 py-3 text-left font-medium uppercase tracking-wider">Servicio</th>
+                                <th className="px-4 py-3 text-left font-medium uppercase tracking-wider">Proveedor</th>
+                                <th className="px-4 py-3 text-left font-medium uppercase tracking-wider">Doc. Prov.</th>
+                                <th className="px-4 py-3 text-left font-medium uppercase tracking-wider">Costo Prov.</th>
+                                <th className="px-4 py-3 text-left font-medium uppercase tracking-wider">Notas Internas</th>
+                                <th className="px-4 py-3 text-left font-medium uppercase tracking-wider">PO Cliente</th>
+                                <th className="px-4 py-3 text-left font-medium uppercase tracking-wider">Precio Cot.</th>
+                                <th className="px-4 py-3 text-left font-medium uppercase tracking-wider">Factura Cliente</th>
+                                <th className="px-4 py-3 text-left font-medium uppercase tracking-wider">Heyzine</th>
+                            </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                            {currentItems.map(p => (
+                                <tr key={p.id} className="hover:bg-gray-50">
+                                    <td className="px-4 py-2 font-medium">{p.clienteNombre}</td>
+                                    <td className="px-4 py-2font-medium">{p.npu}</td>
+                                    <td className="px-4 py-2font-medium">{p.servicioNombre}</td>
+                                    <td className="px-4 py-2">{p.proveedorNombre}</td>
+                                    <td className="px-4 py-2 text-xs">
+                                        <div>Cot: {p.cotizacionProveedorRef || '-'}</div>
+                                        <div>PO: {p.poProveedor || '-'}</div>
+                                    </td>
+                                    <td className="px-4 py-2 text-red-600 font-medium">${(p.costoProveedor || 0).toFixed(2)}</td>
+                                    <td className="px-4 py-2">
+                                        <div className="flex flex-col text-xs">
+                                            <span>NE1: {p.fase1_numeroNotaInterna || '-'}</span>
+                                            {p.fase2_numeroNotaInterna && <span>NE2: {p.fase2_numeroNotaInterna}</span>}
+                                        </div>
+                                    </td>
+                                    <td className="px-4 py-2 text-xs text-blue-600">
+                                        <div>{p.poClienteRef || '-'}</div>
+                                    </td>
+                                    <td className="px-4 py-2 text-green-600 font-medium">${(p.precioCotizacionCliente || 0).toFixed(2)}</td>
+                                    <td className="px-4 py-2 text-xs">
+                                        {p.facturasClienteIds && p.facturasClienteIds.length > 0 
+                                            ? p.facturasClienteIds.map(id => invoicesMap[id] || id).join(', ') 
+                                            : '---'}
+                                    </td>
+                                    <td className="px-4 py-2">
+                                        {p.urlHeyzine ? (
+                                            <a href={p.urlHeyzine} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline font-bold">Ver</a>
+                                        ) : <span className="text-gray-400">---</span>}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            <div className="mt-4 flex justify-between items-center">
+                <span className="text-sm text-gray-700">Página {currentPage} de {totalPages || 1}</span>
+                <div>
+                    <button onClick={() => paginate(currentPage - 1)} disabled={currentPage === 1} className="px-3 py-1 border rounded-md bg-white mr-2 disabled:opacity-50">Anterior</button>
+                    <button onClick={() => paginate(currentPage + 1)} disabled={currentPage === totalPages || totalPages === 0} className="px-3 py-1 border rounded-md bg-white disabled:opacity-50">Siguiente</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// Este es el "router" principal recibe el rol activo del usuario y decide qué dashboard específico debe mostrar.
 const Dashboard = ({ user, userData, selectedRole, setIsTechnicianWorking, selectedClientProfile }) => {    
     
     const renderDashboardByRole = () => {
@@ -5182,6 +5343,8 @@ const Dashboard = ({ user, userData, selectedRole, setIsTechnicianWorking, selec
                 return <FinanzasDashboard user={user} userData={userData} />;
             case 'practicante':
                 return <PracticanteDashboard />;
+            case 'antecedentes': 
+                return <AntecedentesDashboard />;
             default:
                 return <div><h2 className="text-2xl font-bold">Rol no reconocido</h2><p>Contacte al administrador.</p></div>;
         }

@@ -30,7 +30,8 @@ import {
     deleteDoc,
     deleteField,
     arrayUnion,
-    writeBatch
+    writeBatch,
+    or
 } from 'firebase/firestore';
 
 import { 
@@ -156,7 +157,7 @@ const BreakBanner = ({ breakInfo, onEndBreak }) => {
     );
 };
 
-// Mi componente de Alerta para mostrar mensajes de éxito o error.
+//componente de Alerta para mostrar mensajes de éxito o error.
 const Alert = ({ message, type, onClose }) => {
     if (!message) return null;
     const baseClasses = "p-4 mb-4 text-sm rounded-lg relative";
@@ -610,8 +611,7 @@ const ActionWithReasonModal = ({ title, message, onConfirm, onCancel, confirmTex
     );
 };
 
-// El Header o cabecera de la página. Muestra el logo y el botón de salir.
-// También contiene el nuevo selector de roles para usuarios con más de uno.
+// El Header o cabecera de la página. Muestra el logo y el botón de salir también contiene el nuevo selector de roles para usuarios con más de uno.
 const Header = ({ user, userData, selectedRole, setSelectedRole, isWorking, selectedClientProfile, setSelectedClientProfile }) => {
     const logoGrupoEvelsa = "https://www.grupoevelsa.com/assets/images/Logo Evelsa 2.png";
     const hasMultipleRoles = userData?.roles && userData.roles.length > 1;
@@ -1484,6 +1484,7 @@ const NewProjectForm = ({ onProjectAdded }) => {
     );
 };
 
+//
 const ProjectsTable = ({projects, onUpdateProject, userRole, supervisorView, onManageClick, onAssignClick, user, userData, selectedRole}) => {
     const [expandedRowId, setExpandedRowId] = useState(null);
     const [currentPage, setCurrentPage] = useState(1);
@@ -1758,6 +1759,7 @@ const ProjectsTable = ({projects, onUpdateProject, userRole, supervisorView, onM
     );
 };
 
+//
 const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
     const [confirmingAction, setConfirmingAction] = useState(null);
 
@@ -1768,20 +1770,39 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
 
         const isPreliminaryDelivery = project.fase1_fechaFinTecnico && !project.fase2_fechaFinTecnico;
         
+        const updatePayload = {};
+
         if (isPreliminaryDelivery) {
+          
+            updatePayload.estado = 'Activo'; 
+            updatePayload.faseFacturacion = 'Fase 2 Pendiente'; 
+            updatePayload.estadoCliente = 'Terminado';
 
-            await updateDoc(projectRef, { 
-                estado: 'Pendiente de Factura', 
-                faseFacturacion: 'Preliminar',
-                estadoCliente: 'Terminado'
-            });
-        } else {
 
-            if (project.faseFacturacion === 'Preliminar' || project.faseFacturacion === 'Fase 2 Pendiente') {
-                await updateDoc(projectRef, { estado: 'Archivado', estadoCliente: 'Terminado' });
-            } else {
-                await updateDoc(projectRef, { estado: 'Pendiente de Factura', estadoCliente: 'Terminado' });
+            if (project.asignadoTecnicosIds) {
+                const newTechStatus = {};
+                project.asignadoTecnicosIds.forEach(uid => {
+                    newTechStatus[uid] = 'No Visto';
+                });
+                updatePayload.tecnicosStatus = newTechStatus;
             }
+
+            const alreadyBilled = project.facturasClienteIds && project.facturasClienteIds.length > 0;
+
+            if (!alreadyBilled) {
+                updatePayload.necesitaFactura = true;
+            } 
+
+        } else {
+            updatePayload.estado = 'Terminado';
+            updatePayload.estadoCliente = 'Terminado';
+        }
+        
+        try {
+            await updateDoc(projectRef, updatePayload);
+        } catch (err) {
+            console.error(err);
+            alert("Error al actualizar el proyecto.");
         }
         
         setConfirmingAction(null);
@@ -1804,27 +1825,25 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
     };
 
     const promptApprove = (project) => {
-        const isFinalDelivery = !!project.urlDocumento2;
-        const hasBeenBilled = project.faseFacturacion === 'Preliminar' || project.faseFacturacion === 'Fase 2 Pendiente';
-        
-        const confirmationMessage = isFinalDelivery 
-            ? (hasBeenBilled ? "Aprobar y finalizar este proyecto? Se archivará y no se volverá a facturar." : "Aprobar esta entrega final y enviarla a facturación?")
-            : "Aprobar esta entrega preliminar y enviarla a facturación?";
-        
+        const isPhase1 = project.fase1_fechaFinTecnico && !project.fase2_fechaFinTecnico;
+        const message = isPhase1 
+            ? "Esta entrega es un ingreso, el cliente vera el proyecto como terminado pero seguira activo en espera del resolutivo. ¿Continuar?"
+            : "Esta es la entrega final. El proyecto se marcará como Terminado. ¿Continuar?";
+
         setConfirmingAction({
             action: 'approve',
             payload: { project },
-            title: "Confirmar Aprobación",
-            message: confirmationMessage,
+            title: "Aprobar",
+            message: message,
         });
     };
 
     const promptReject = (projectId) => {
         setConfirmingAction({
             action: 'reject',
-            payload: { projectId }, 
+            payload: { projectId },
             title: "Rechazar Proyecto",
-            message: "Por favor, introduce el motivo del rechazo para notificar al practicante.",
+            message: "Por favor, introduce el motivo del rechazo.",
             confirmText: "Rechazar",
             confirmColor: "bg-orange-600"
         });
@@ -1836,57 +1855,38 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                         <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Documentos Finales</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Documentos</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                         {projects.map(project => (
                              <tr key={project.id}>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.npu}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.servicioNombre}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                    <div className="flex flex-col space-y-1">
+                                        {project.urlHeyzine && <a href={project.urlHeyzine} target="_blank" rel="noopener noreferrer" className="text-blue-600">Ver Proyecto</a>}
+                                        {project.fase1_urlNotaEntregaFirmada && <a href={project.fase1_urlNotaEntregaFirmada} target="_blank" rel="noopener noreferrer" className="text-red-600">Nota F1</a>}
+                                        {project.fase2_urlNotaEntregaFirmada && <a href={project.fase2_urlNotaEntregaFirmada} target="_blank" rel="noopener noreferrer" className="text-red-600">Nota F2</a>}
+                                    </div>
+                                </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                     <div className="flex space-x-4">
                                         <button onClick={() => promptApprove(project)} className="text-green-600 hover:text-green-900">Aprobar</button>
                                         <button onClick={() => promptReject(project.id)} className="text-orange-600 hover:text-orange-900">Rechazar</button>
                                     </div>
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                    <div className="flex flex-col space-y-1">
-                                        {project.urlHeyzine && <a href={project.urlHeyzine} target="_blank" rel="noopener noreferrer" className="text-blue-600">Ver Proyecto (Heyzine)</a>}
-                                        {project.fase1_urlNotaEntregaFirmada && <a href={project.fase1_urlNotaEntregaFirmada} target="_blank" rel="noopener noreferrer" className="text-red-600">Ver Nota 1 (Firmada)</a>}
-                                        {project.fase2_urlNotaEntregaFirmada && <a href={project.fase2_urlNotaEntregaFirmada} target="_blank" rel="noopener noreferrer" className="text-red-600">Ver Nota 2 (Firmada)</a>}
-                                    </div>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.clienteNombre}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.servicioNombre}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.npu}</td>
                             </tr>
                         ))}
                     </tbody>
                 </table>
             </div>
-
-            {confirmingAction?.action === 'approve' && (
-                <ConfirmationModal 
-                    title={confirmingAction.title}
-                    message={confirmingAction.message}
-                    onConfirm={handleApprove} 
-                    onCancel={() => setConfirmingAction(null)}
-                />
-            )}
             
-            {confirmingAction?.action === 'reject' && (
-                <ActionWithReasonModal 
-                    title={confirmingAction.title}
-                    message={confirmingAction.message}
-                    onConfirm={handleReject} 
-                    onCancel={() => setConfirmingAction(null)}
-                    confirmText={confirmingAction.confirmText}
-                    confirmColor={confirmingAction.confirmColor}
-                />
-            )}
+            {confirmingAction?.action === 'approve' && <ConfirmationModal title={confirmingAction.title} message={confirmingAction.message} onConfirm={handleApprove} onCancel={() => setConfirmingAction(null)} />}
+            {confirmingAction?.action === 'reject' && <ActionWithReasonModal title={confirmingAction.title} message={confirmingAction.message} onConfirm={handleReject} onCancel={() => setConfirmingAction(null)} confirmText={confirmingAction.confirmText} confirmColor={confirmingAction.confirmColor} />}
         </>
     );
 };
@@ -3443,7 +3443,7 @@ const TechnicianHealthCard = ({ techData }) => {
     );
 };
 
-// El dashboard del Supervisor. Aquí ve los proyectos nuevos para asignar y monitorea el progreso de los que ya están en proceso.
+// El dashboard del Supervisor aquí ve los proyectos nuevos para asignar, monitorea el progreso de los que ya están en proceso y revisa proyectos para subir
 const SupervisorDashboard = ({ user, userData, selectedRole }) => {
     const [view, setView] = useState('new');
     const [allProjects, setAllProjects] = useState([]);
@@ -3805,8 +3805,8 @@ const TecnicoDashboard = ({ user, userData, selectedRole, setIsWorkingState }) =
     
     const promptSoftFinish = (projectId) => {
         setConfirmingAction({
-            title: "Confirmar Finalización Técnica",
-            message: "Esta acción registrará la fecha de hoy como tu fin de tarea, el proyecto seguira activo hasta que generes la nota de entrega. ¿Estás seguro?",
+            title: "Confirmar para finalizar la parte Técnica",
+            message: "Esta acción registrará el dia de hoy como la fecha de termino de tu proyecto, seguira activo hasta que generes la nota de entrega.",
             onConfirm: () => handleSoftFinish(projectId),
             confirmText: "Sí, Finalizar"
         });
@@ -3909,14 +3909,15 @@ const TecnicoDashboard = ({ user, userData, selectedRole, setIsWorkingState }) =
                 const evidenceUrl = await getDownloadURL((await evidenceUploadTask).ref);
                 const { numeroNota } = await generateAndSaveNota();
                 const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
+                const now = Timestamp.now();
                 
                 const updatePayload = {
                     estado: 'Terminado Internamente',
                 };
+                
+                const isPhase2Active = project.faseFacturacion === 'Fase 2 Pendiente';
 
-                const now = Timestamp.now();
-
-                if (project.fase1_fechaFinTecnico) {
+                if (isPhase2Active) {
                     updatePayload.fase2_comentariosTecnico = comments;
                     updatePayload.fase2_urlEvidencia = evidenceUrl;
                     updatePayload.fase2_numeroNotaInterna = numeroNota;
@@ -3926,6 +3927,7 @@ const TecnicoDashboard = ({ user, userData, selectedRole, setIsWorkingState }) =
                     updatePayload.fase1_urlEvidencia = evidenceUrl;
                     updatePayload.fase1_numeroNotaInterna = numeroNota;
                     updatePayload.fase1_fechaFinTecnico = now;
+                    updatePayload.necesitaFactura = true; 
                 }
                 
                 if (!project.fechaFinTecnicoReal) {
@@ -4198,7 +4200,7 @@ const FinanzasDashboard = ({ user, userData }) => {
                     <h2 className="text-2xl font-bold text-gray-800 my-6">Análisis Financiero</h2>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                         <AgingReport />
-                        {/* En el futuro, agregar mas graficas conforme se necesites */}
+                        {/* En el futuro, agregar mas graficas conforme se necesite */}
                     </div>
                 </div>
             )}
@@ -4218,11 +4220,13 @@ const FinanzasDashboard = ({ user, userData }) => {
 };
 
 // modal para subir facturas a proyectos pendientes de facturar
-const PendingInvoicesTable = ({ projects, onUpdate }) => {
-    const [modalProject, setModalProject] = useState(null);
+const PendingInvoicesTable = () => {
+    const [pendingProjects, setPendingProjects] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
+    const [modalProject, setModalProject] = useState(null);
 
     const AttachInvoicesModal = ({ project, onClose, onFinalized }) => {
         const [mode, setMode] = useState('upload');
@@ -4283,7 +4287,7 @@ const PendingInvoicesTable = ({ projects, onUpdate }) => {
             setError('');
             try {
                 const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
-                const updatePayload = {};
+                const updatePayload = {necesitaFactura: false};
 
                 if (mode === 'upload') {
                     if (clientXmlFile && clientInvoiceData) {
@@ -4332,13 +4336,6 @@ const PendingInvoicesTable = ({ projects, onUpdate }) => {
                         await updateDoc(doc(db, "facturas", selectedProviderInvoiceId), { proyectosIds: arrayUnion(project.id) });
                         updatePayload.facturasProveedorIds = arrayUnion(selectedProviderInvoiceId);
                     }
-                }
-                
-                const clientInvoiceReady = (project.facturasClienteIds?.length > 0) || clientInvoiceData || selectedClientInvoiceId;
-                const providerInvoiceReady = isInternalProvider || (project.facturasProveedorIds?.length > 0) || providerInvoiceData || selectedProviderInvoiceId;
-
-                if (clientInvoiceReady && providerInvoiceReady) {
-                    updatePayload.estado = 'Facturado';
                 }
 
                 if (Object.keys(updatePayload).length > 0) {
@@ -4455,8 +4452,36 @@ const PendingInvoicesTable = ({ projects, onUpdate }) => {
         );
     };
 
-    const filteredProjects = projects.filter(p => (p.npu && p.npu.toLowerCase().includes(searchTerm.toLowerCase())) || (p.clienteNombre && p.clienteNombre.toLowerCase().includes(searchTerm.toLowerCase())) || (p.servicioNombre && p.servicioNombre.toLowerCase().includes(searchTerm.toLowerCase())));
-    const currentItems = filteredProjects.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+    useEffect(() => {
+        setLoading(true);
+        const q = query(
+            collection(db, PROYECTOS_COLLECTION),
+            or(
+                where("necesitaFactura", "==", true),
+                where("estado", "==", "Pendiente de Factura")
+            )
+        );
+        
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setPendingProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setLoading(false);
+        }, (error) => {
+            console.error("Error cargando facturas pendientes:", error);
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, []);
+
+    const filteredProjects = pendingProjects.filter(p => 
+        (p.npu && p.npu.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (p.clienteNombre && p.clienteNombre.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (p.poClienteRef && p.poClienteRef.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+
+    const indexOfLastItem = currentPage * itemsPerPage;
+    const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+    const currentItems = filteredProjects.slice(indexOfFirstItem, indexOfLastItem);
     const totalPages = Math.ceil(filteredProjects.length / itemsPerPage);
     const paginate = (pageNumber) => setCurrentPage(pageNumber);
 
@@ -4476,45 +4501,56 @@ const PendingInvoicesTable = ({ projects, onUpdate }) => {
                     <thead className="bg-gray-50">
                         <tr>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ref. Documentos</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Referencias</th>
                             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Montos</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Facturas</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                        {currentItems.map(project => (
-                             <tr key={project.id}>
-                                <td className="px-6 py-4">{project.npu}</td>
-                                <td className="px-6 py-4">{project.clienteNombre}</td>
-                                <td className="px-6 py-4">{project.servicioNombre}</td>
-                                <td className="px-4 py-2 text-xs text-gray-700">
-                                    <div className="space-y-1">
-                                        <p><span className="font-bold text-gray-600">NE:</span> {project.fase1_numeroNotaInterna || 'N/A'}</p>
-                                        <p className="border-t mt-1 pt-1"><span className="font-bold text-blue-600">Cliente:</span> {project.poClienteRef || 'N/A'}</p>
-                                        <p><span className="font-bold text-gray-500">Prov:</span> {project.poProveedor || 'N/A'}</p>
-                                    </div>
-                                </td>
-                                <td className="px-4 py-2 text-sm">
-                                    <div className="flex flex-col">
-                                        <span className="text-green-600 font-semibold">${project.precioCotizacionCliente?.toFixed(2)}</span>
-                                        <span className="text-red-500 text-xs">${project.costoProveedor?.toFixed(2)}</span>
-                                    </div>
-                                </td>
-                                <td className="px-4 py-2 text-sm">
-                                    <div className="flex flex-col">
-                                        <div className="px-6 py-4">{project.facturaClienteId ? <span className="text-green-600">✓ Adjuntada</span> : <span className="text-orange-500">Pendiente</span>}</div>
-                                        <div className="px-6 py-4">{project.proveedorNombre?.toLowerCase().includes("ecologia") ? <span className="text-gray-500">N/A</span> : project.facturaProveedorId ? <span className="text-green-600">✓ Adjuntada</span> : <span className="text-orange-500">Pendiente</span>}</div>
-                                    </div>
-                                </td>
-                                <td className="px-6 py-4"><button onClick={() => setModalProject(project)} className="text-indigo-600 hover:text-indigo-900">Gestionar</button></td>
-                            </tr>
-                        ))}
+                        {loading ? (
+                            <tr><td colSpan="6" className="text-center py-4">Cargando proyectos pendientes...</td></tr>
+                        ) : currentItems.length === 0 ? (
+                            <tr><td colSpan="6" className="text-center py-4">No hay proyectos pendientes de facturar.</td></tr>
+                        ) : (
+                            currentItems.map(project => (
+                                <tr key={project.id}>
+                                    <td className="px-6 py-4 font-medium">{project.npu}</td>
+                                    <td className="px-4 py-2">{project.clienteNombre}</td>
+                                    <td className="px-4 py-2">{project.servicioNombre}</td>
+                                    <td className="px-4 py-2 text-xs text-gray-700">
+                                        <div className="space-y-1">
+                                            <p><span className="font-bold text-gray-600">NE:</span> {project.fase1_numeroNotaInterna || 'N/A'}</p>
+                                            <p className="border-t mt-1 pt-1"><span className="font-bold text-blue-600">Cliente:</span> {project.poClienteRef || 'N/A'}</p>
+                                            <p><span className="font-bold text-gray-500">Prov:</span> {project.poProveedor || 'N/A'}</p>
+                                        </div>
+                                    </td>
+                                    <td className="px-4 py-2 text-sm">
+                                        <div className="flex flex-col">
+                                            <span className="text-green-600 font-semibold">${project.precioCotizacionCliente?.toFixed(2)}</span>
+                                            <span className="text-red-500 text-xs">${project.costoProveedor?.toFixed(2)}</span>
+                                        </div>
+                                    </td>
+                                    <td className="px-4 py-2 text-sm">
+                                        <div className="flex flex-col">
+                                            <div className="px-6 py-4">{project.facturaClienteId ? <span className="text-green-600">✓ Adjuntada</span> : <span className="text-orange-500">Pendiente</span>}</div>
+                                            <div className="px-6 py-4">{project.proveedorNombre?.toLowerCase().includes("ecologia") ? <span className="text-gray-500">N/A</span> : project.facturaProveedorId ? <span className="text-green-600">✓ Adjuntada</span> : <span className="text-orange-500">Pendiente</span>}</div>
+                                        </div>
+                                    </td>
+                                    <td className="px-4 py-2">
+                                        <button onClick={() => setModalProject(project)} className="text-indigo-600 hover:text-indigo-900 font-bold">
+                                            Adjuntar Factura
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))
+                        )}
                     </tbody>
                 </table>
             </div>
+
             <div className="mt-4 flex justify-between items-center">
                 <span className="text-sm text-gray-700">Página {currentPage} de {totalPages}</span>
                 <div>
@@ -4522,7 +4558,13 @@ const PendingInvoicesTable = ({ projects, onUpdate }) => {
                     <button onClick={() => paginate(currentPage + 1)} disabled={currentPage === totalPages || totalPages === 0} className="px-3 py-1 border rounded-md bg-white disabled:opacity-50">Siguiente</button>
                 </div>
             </div>
-            {modalProject && <AttachInvoicesModal project={modalProject} onClose={() => setModalProject(null)} onFinalized={onUpdate} />}
+            {modalProject && (
+                <AttachInvoicesModal 
+                    project={modalProject} 
+                    onClose={() => setModalProject(null)} 
+                    onFinalized={() => setModalProject(null)} 
+                />
+            )}
         </>
     );
 };
@@ -4854,7 +4896,7 @@ const InvoicesList = ({ invoiceType, onUpdate }) => {
     );
 };
 
-// El dashboard del Practicante. Recibe los proyectos terminados por los técnicos para preparar los entregables finales para el cliente.
+// El dashboard del Practicante recibe los proyectos terminados por los técnicos para preparar los entregables finales para el cliente.
 const PracticanteDashboard = () => {
     const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(true);

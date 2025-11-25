@@ -747,10 +747,10 @@ const Header = ({ user, userData, selectedRole, setSelectedRole, isWorking, sele
     );
 };
 
+//bitacora de tecnicos
 const ProjectLogModal = ({ project, user, userData, onClose, selectedRole }) => {
     const [logEntries, setLogEntries] = useState([]);
     const [newNote, setNewNote] = useState('');
-    const [newFile, setNewFile] = useState(null);
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
@@ -769,34 +769,22 @@ const ProjectLogModal = ({ project, user, userData, onClose, selectedRole }) => 
         return () => unsubscribe();
     }, [project.id]);
 
-    const handleFileChange = (e) => {
-        if (e.target.files[0]) setNewFile(e.target.files[0]);
-    };
-
     const handleSubmitNote = async () => {
-        if (!newNote && !newFile) return;
+        if (!newNote.trim()) return;
         setSubmitting(true);
         setError('');
 
         try {
-            let fileUrl = '';
-            if (newFile) {
-                const storageRef = ref(storage, `bitacoras/${project.id}/${Date.now()}_${newFile.name}`);
-                const uploadTask = uploadBytesResumable(storageRef, newFile);
-                fileUrl = await getDownloadURL((await uploadTask).ref);
-            }
-
+            
             await addDoc(collection(db, "bitacoras_proyectos"), {
                 projectId: project.id,
                 autorId: user.uid,
                 autorNombre: userData.nombreCompleto,
                 mensaje: newNote,
-                adjuntoUrl: fileUrl,
                 fecha: Timestamp.now()
             });
 
             setNewNote('');
-            setNewFile(null);
             const fileInput = document.getElementById(`file-input-${project.id}`);
             if(fileInput) fileInput.value = "";
 
@@ -823,7 +811,6 @@ const ProjectLogModal = ({ project, user, userData, onClose, selectedRole }) => 
                         logEntries.map(entry => (
                             <div key={entry.id} className="p-3 bg-white rounded-lg shadow-sm">
                                 <p className="text-sm text-gray-800 whitespace-pre-wrap">{entry.mensaje}</p>
-                                {entry.adjuntoUrl && <a href={entry.adjuntoUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline">Ver adjunto</a>}
                                 <p className="text-xs text-gray-500 mt-2 text-right">{entry.autorNombre} - {formatDate(entry.fecha)}</p>
                             </div>
                         ))
@@ -833,7 +820,6 @@ const ProjectLogModal = ({ project, user, userData, onClose, selectedRole }) => 
                 {canWrite && (
                     <div className="border-t pt-4">
                         <textarea value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="Añadir nueva nota..." rows="3" className="w-full p-2 border rounded-md"></textarea>
-                        <input type="file" id={`file-input-${project.id}`} onChange={handleFileChange} className="w-full text-sm mt-2"/>
                         <Alert message={error} type="error" onClose={() => setError('')} />
                         <button onClick={handleSubmitNote} disabled={submitting} className="w-full mt-2 bg-[#b0ef26] hover:bg-[#9ac91e] text-black font-bold py-2 px-4 rounded-lg disabled:bg-gray-300">
                             {submitting ? 'Guardando...' : 'Añadir a la Bitácora'}
@@ -3387,19 +3373,13 @@ const TechnicianHealthCard = ({ techData }) => {
         capacidadSemanal,
         saturacion,
         diasParaTerminar,
-        rendimiento,
+        proyectosFase2Pendiente,
     } = techData;
 
     const getSaturationColor = (percentage) => {
         if (percentage > 100) return 'bg-red-500';
         if (percentage > 85) return 'bg-yellow-500';
         return 'bg-green-500';
-    };
-
-    const getPerformanceColor = (percentage) => {
-        if (percentage < 80) return 'text-red-600';
-        if (percentage < 100) return 'text-orange-500';
-        return 'text-green-600';
     };
 
     return (
@@ -3423,7 +3403,7 @@ const TechnicianHealthCard = ({ techData }) => {
             <div className="grid grid-cols-2 gap-4 text-center border-t border-b py-4">
                 <div>
                     <p className="text-2xl font-bold">{proyectosActivos}</p>
-                    <p className="text-sm text-gray-500">Proyectos Activos</p>
+                    <p className="text-sm text-gray-500">Activos</p>
                 </div>
                 <div>
                     <p className="text-2xl font-bold">{proyectosEntregados}</p>
@@ -3434,8 +3414,8 @@ const TechnicianHealthCard = ({ techData }) => {
                     <p className="text-sm text-gray-500">Días para Terminar</p>
                 </div>
                 <div>
-                    <p className={`text-2xl font-bold ${getPerformanceColor(rendimiento)}`}>{rendimiento.toFixed(0)}%</p>
-                    <p className="text-sm text-gray-500">Rendimiento (Est. vs Real)</p>
+                    <p className="text-2xl font-bold text-gray-600">{proyectosFase2Pendiente}</p>
+                    <p className="text-sm text-gray-500">Pend. resolutivo</p>
                 </div>
             </div>
 
@@ -3503,13 +3483,25 @@ const SupervisorDashboard = ({ user, userData, selectedRole }) => {
     }, [view]);
 
     const processedData = React.useMemo(() => {
-        if (technicians.length === 0) return { healthData: [], newProjects: [], projectsByTechnician: {} };
+        if (technicians.length === 0) return { healthData: [], newProjects: [], projectsByTechnician: {}, projectsForReview: [] };
+
+        const projectsByTechnician = {};
+        technicians.forEach(tech => {
+            projectsByTechnician[tech.id] = allProjects.filter(p =>
+                p.estado === 'Activo' && p.asignadoTecnicosIds?.includes(tech.id)
+            );
+        });
 
         const healthData = technicians.map(tech => {
             const assignedProjects = allProjects.filter(p => p.asignadoTecnicosIds?.includes(tech.id));
-            
+
             const activeProjects = assignedProjects.filter(p => p.estado === 'Activo' && !p.fechaFinTecnicoReal);
-            
+
+            const fase2PendingCount = assignedProjects.filter(p => 
+                p.estado === 'Activo' && 
+                p.faseFacturacion === 'Fase 2 Pendiente'
+            ).length;
+
             const horasAsignadas = activeProjects.reduce((sum, p) => {
                 const remainingHours = Math.max(0, (p.horasEstimadas || 0) - (p.horasRegistradas || 0));
                 return sum + remainingHours;
@@ -3525,19 +3517,6 @@ const SupervisorDashboard = ({ user, userData, selectedRole }) => {
                 (p.fase1_fechaFinTecnico || p.fechaFinTecnicoReal)?.toDate().getFullYear() === new Date().getFullYear()
             ).length;
 
-            const completedProjectsWithMetrics = allProjects.filter(p =>
-                p.asignadoTecnicosIds?.includes(tech.id) &&
-                p.horasEstimadas > 0 &&
-                p.horasRegistradas > 0 &&
-                p.fechaFinTecnicoReal
-            );
-
-            let rendimiento = 100;
-            if (completedProjectsWithMetrics.length > 0) {
-                const totalRatio = completedProjectsWithMetrics.reduce((sum, p) => sum + (p.horasEstimadas / p.horasRegistradas), 0);
-                rendimiento = (totalRatio / completedProjectsWithMetrics.length) * 100;
-            }
-
             return {
                 id: tech.id,
                 nombre: tech.nombreCompleto,
@@ -3547,21 +3526,16 @@ const SupervisorDashboard = ({ user, userData, selectedRole }) => {
                 capacidadSemanal,
                 saturacion,
                 diasParaTerminar,
-                rendimiento,
+                proyectosFase2Pendiente: fase2PendingCount,
             };
         });
-
+        
         const newProjects = allProjects.filter(p => p.estado === 'Activo' && (!p.asignadoTecnicosIds || p.asignadoTecnicosIds.length === 0));
-
-        const projectsByTechnician = {};
-        technicians.forEach(tech => {
-            projectsByTechnician[tech.id] = allProjects.filter(p =>
-                p.estado === 'Activo' && p.asignadoTecnicosIds?.includes(tech.id)
-            );
-            projectsByTechnician[tech.id].sort((a, b) => (b.prioridad || "").localeCompare(a.prioridad || ""));
-        });
-
         const projectsForReview = allProjects.filter(p => p.estado === 'En Revisión Final');
+
+        for (const techId in projectsByTechnician) {
+            projectsByTechnician[techId].sort((a, b) => (b.prioridad || "").localeCompare(a.prioridad || ""));
+        }
 
         return { healthData, newProjects, projectsByTechnician, projectsForReview };
     }, [allProjects, technicians]);

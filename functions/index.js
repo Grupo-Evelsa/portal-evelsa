@@ -4,14 +4,14 @@ const {onDocumentCreated, onDocumentUpdated} =
  require("firebase-functions/v2/firestore");
 const {onValueUpdated} = require("firebase-functions/v2/database");
 const {log, error} = require("firebase-functions/logger");
-const {defineString} = require("firebase-functions/params");
+const {defineSecret} = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const axios = require("axios");
 
 admin.initializeApp();
 
 const PROYECTOS_COLLECTION = "proyectos_v2";
-const slackBotToken = defineString("SLACK_BOT_TOKEN");
+const slackBotToken = defineSecret("SLACK_BOT_TOKEN");
 
 /**
  * Busca el ID de un usuario de Slack usando su dirección de email.
@@ -136,32 +136,36 @@ async function archiveFileToColdline(fileUrl) {
   }
 }
 
-exports.notifyNewLogEntry =
- onDocumentCreated("bitacoras_proyectos/{logId}", async (event) => {
-   const snap = event.data;
-   if (!snap) return;
-   const logData = snap.data();
-   const projectDoc =
-   await admin.firestore()
-       .collection(PROYECTOS_COLLECTION).doc(logData.projectId).get();
-   if (!projectDoc.exists) return;
-   const projectData = projectDoc.data();
+exports.notifyNewLogEntry = onDocumentCreated({
+  document: "bitacoras_proyectos/{logId}",
+  secrets: [slackBotToken],
+}, async (event) => {
+  const snap = event.data;
+  if (!snap) return;
+  const logData = snap.data();
+  const projectDoc =
+  await admin.firestore()
+      .collection(PROYECTOS_COLLECTION).doc(logData.projectId).get();
+  if (!projectDoc.exists) return;
+  const projectData = projectDoc.data();
 
-   const supervisors = await getUsersDataByRole("supervisor");
-   const message =
-   `*Nueva Bitácora en ${projectData.npu}* |
-    *${logData.autorNombre}* añadió una nota.`;
+  const supervisors = await getUsersDataByRole("supervisor");
+  const message =
+  `*Nueva Bitácora en ${projectData.npu}* |
+   *${logData.autorNombre}* añadió una nota.`;
 
-   for (const supervisor of supervisors) {
-     if (supervisor && supervisor.email) {
-       const slackUserId = await getSlackUserIdByEmail(supervisor.email);
-       if (slackUserId) await sendSlackDM(slackUserId, message);
-     }
-   }
- });
+  for (const supervisor of supervisors) {
+    if (supervisor && supervisor.email) {
+      const slackUserId = await getSlackUserIdByEmail(supervisor.email);
+      if (slackUserId) await sendSlackDM(slackUserId, message);
+    }
+  }
+});
 
-exports.notifyProjectUpdate =
-onDocumentUpdated(PROYECTOS_COLLECTION + "/{projectId}", async (event) => {
+exports.notifyProjectUpdate = onDocumentUpdated({
+  document: PROYECTOS_COLLECTION + "/{projectId}",
+  secrets: [slackBotToken],
+}, async (event) => {
   if (!event.data) return;
   const beforeData = event.data.before.data();
   const afterData = event.data.after.data();
@@ -185,8 +189,6 @@ onDocumentUpdated(PROYECTOS_COLLECTION + "/{projectId}", async (event) => {
     }
   };
 
-  // --- Lógica de Notificaciones de Eventos ---
-  // Evento: Proyecto Activado (Notifica al Supervisor)
   if (beforeData.estado === "Cotización" && afterData.estado === "Activo") {
     const message =
      `Proyecto Activado: ${afterData.npu} está listo para ser asignado.`;
@@ -201,12 +203,10 @@ onDocumentUpdated(PROYECTOS_COLLECTION + "/{projectId}", async (event) => {
       Se te ha asignado el proyecto ${afterData.npu}.`);
   }
 
-  // --- NUEVO: Evento de Cambio de Prioridad ---
   const priorityBefore = beforeData.prioridad || "1 - Normal";
   const priorityAfter = afterData.prioridad || "1 - Normal";
 
   if (priorityBefore !== priorityAfter) {
-    // Si la prioridad cambió, notifica a los técnicos asignados actualmente
     const priorityText = priorityAfter.split(" - ")[1] || priorityAfter;
     await notifyUsers(techsAfter, `🚩 *Prioridad Actualizada:*
        El proyecto ${afterData.npu} ahora tiene prioridad *${priorityText}*.`);

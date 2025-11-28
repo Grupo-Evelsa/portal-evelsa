@@ -102,6 +102,30 @@ const formatDate = (timestamp) => {
     });
 };
 
+/**
+ * Calcula la cantidad de días hábiles (Lunes a Viernes) entre dos fechas.
+ * @param {Date} start
+ * @param {Date} end
+ * @returns {number}
+ */
+const calculateBusinessDays = (start, end) => {
+    let count = 0;
+    const curDate = new Date(start);
+    const endDate = new Date(end);
+    
+    curDate.setHours(0,0,0,0);
+    endDate.setHours(0,0,0,0);
+
+    while (curDate <= endDate) {
+        const dayOfWeek = curDate.getDay();
+        if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+            count++;
+        }
+        curDate.setDate(curDate.getDate() + 1);
+    }
+    return count;
+};
+
 //countdown
 const useCountdown = (endTime) => {
     const [timeLeft, setTimeLeft] = useState(0);
@@ -272,6 +296,67 @@ const parseInvoiceXML = (xmlText) => {
         console.error("Error al parsear el XML:", err);
         return null;
     }
+};
+
+/**
+ * Calcula los días de vacaciones.
+ * Soporta saldo histórico y ajuste de días tomados manualmente.
+ */
+const calculateVacationBalance = (fechaIngresoTimestamp, historialInput = []) => {
+    if (!fechaIngresoTimestamp) return { totalGenerado: 0, tomados: 0, disponibles: 0, antiguedad: 0 };
+
+    const historialVacaciones = Array.isArray(historialInput) ? historialInput : [];
+
+    const fechaIngreso = fechaIngresoTimestamp.toDate();
+    const hoy = new Date();
+    
+    let antiguedad = hoy.getFullYear() - fechaIngreso.getFullYear();
+    const m = hoy.getMonth() - fechaIngreso.getMonth();
+    if (m < 0 || (m === 0 && hoy.getDate() < fechaIngreso.getDate())) {
+        antiguedad--;
+    }
+
+    let totalDiasGenerados = 0;
+    
+    for (let i = 1; i <= antiguedad + 1; i++) {
+        let diasEseAnio = 0;
+        if (i === 1) diasEseAnio = 12;
+        else if (i === 2) diasEseAnio = 14;
+        else if (i === 3) diasEseAnio = 16;
+        else if (i === 4) diasEseAnio = 18;
+        else if (i === 5) diasEseAnio = 20;
+        else {
+            const bloquesDeCinco = Math.floor((i - 6) / 5) + 1;
+            diasEseAnio = 20 + (bloquesDeCinco * 2);
+        }
+
+        if (i <= antiguedad) {
+            totalDiasGenerados += diasEseAnio;
+        } else {
+            const ultimoAniversario = new Date(fechaIngreso);
+            ultimoAniversario.setFullYear(hoy.getFullYear());
+            if (hoy < ultimoAniversario) ultimoAniversario.setFullYear(hoy.getFullYear() - 1);
+            
+            const diffTiempo = hoy.getTime() - ultimoAniversario.getTime();
+            const diasTranscurridos = Math.ceil(diffTiempo / (1000 * 3600 * 24));
+            const proporcional = (diasEseAnio / 365) * diasTranscurridos;
+            totalDiasGenerados += Math.floor(proporcional);
+        }
+    }
+
+    const totalTomados = historialVacaciones.reduce((acc, registro) => {
+        const dias = Number(registro.dias) || 0;
+        return acc + dias;
+    }, 0);
+
+    const disponibles = totalDiasGenerados - totalTomados;
+
+    return {
+        totalGenerado: totalDiasGenerados,
+        tomados: totalTomados,
+        disponibles,
+        antiguedad
+    };
 };
 
 // modal para obtener datos de antiguedad de saldos y graficar
@@ -617,7 +702,15 @@ const Header = ({ user, userData, selectedRole, setSelectedRole, isWorking, sele
     const hasMultipleRoles = userData?.roles && userData.roles.length > 1;
     const hasMultipleClients = userData?.clientesAsociados && userData.clientesAsociados.length > 1;
     const [clientProfiles, setClientProfiles] = useState([]);
+    const [showVacationModal, setShowVacationModal] = useState(false);
 
+    const canAccessVacations = userData && 
+                               userData.rol !== 'cliente' &&
+                               userData.rol !== 'rh' && 
+                               userData.rol !== 'administrador' &&
+                               userData.rol !== 'directivo' &&
+                               !userData.roles?.includes('administrador');
+    
     useEffect(() => {
         if (hasMultipleClients) {
             const fetchProfiles = async () => {
@@ -685,65 +778,89 @@ const Header = ({ user, userData, selectedRole, setSelectedRole, isWorking, sele
     }, [user]);
 
     return (
-        <header className="bg-white shadow-md sticky top-0 z-40">
-            <div className="max-w-7xl mx-auto py-3 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
-                <div className="flex items-center">
-                    {selectedClientProfile && selectedClientProfile.rol === 'cliente' && selectedClientProfile.logoUrl ? (
-                        <img src={selectedClientProfile.logoUrl} onError={(e)=>{e.target.onerror = null; e.target.src="https://placehold.co/150x50/FFFFFF/000000?text=Logo+Cliente"}} alt="Logo Cliente" className="h-12 w-auto mr-4 object-contain"/>
-                    ) : (
-                        <img src={logoGrupoEvelsa} alt="Logo Grupo Evelsa" className="h-12 w-auto mr-4"/>
+        <>
+            <header className="bg-white shadow-md sticky top-0 z-40">
+                <div className="max-w-7xl mx-auto py-3 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
+                    <div className="flex items-center">
+                        {selectedClientProfile && selectedClientProfile.rol === 'cliente' && selectedClientProfile.logoUrl ? (
+                            <img src={selectedClientProfile.logoUrl} onError={(e)=>{e.target.onerror = null; e.target.src="https://placehold.co/150x50/FFFFFF/000000?text=Logo+Cliente"}} alt="Logo Cliente" className="h-12 w-auto mr-4 object-contain"/>
+                        ) : (
+                            <img src={logoGrupoEvelsa} alt="Logo Grupo Evelsa" className="h-12 w-auto mr-4"/>
+                        )}
+                    </div>
+                    {user && (
+                        <div className="flex items-center space-x-4">
+                            {canAccessVacations ? (
+                                <button 
+                                    onClick={() => setShowVacationModal(true)}
+                                    className="text-gray-600 hidden sm:flex items-center hover:text-blue-600 hover:bg-blue-50 px-2 py-1 rounded transition"
+                                    title="Ver Perfil y Vacaciones"
+                                >
+                                    <span className="font-medium">Hola, {userData ? userData.nombreCompleto.split(' ')[0] : user.email}</span>
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 ml-1" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" /></svg>
+                                </button>
+                            ) : (
+                                <span className="text-gray-600 hidden sm:flex items-center px-2 py-1 font-medium cursor-default">
+                                    Hola, {userData ? userData.nombreCompleto.split(' ')[0] : user.email}
+                                </span>
+                            )}
+
+                            {hasMultipleRoles && (
+                                <div className="relative">
+                                    <select 
+                                        value={selectedRole}
+                                        onChange={(e) => setSelectedRole(e.target.value)}
+                                        className="appearance-none bg-gray-100 border border-gray-300 rounded-md py-2 pl-3 pr-8 text-sm font-medium text-gray-700 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                                    >
+                                        {userData.roles.map(role => (
+                                            <option key={role} value={role} className="capitalize">{role.charAt(0).toUpperCase() + role.slice(1)}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+
+                            {hasMultipleClients && selectedRole === 'cliente' && (
+                                <div className="relative">
+                                    <select 
+                                        value={selectedClientProfile?.id || ''}
+                                        onChange={handleClientChange}
+                                        className="appearance-none bg-gray-100 border border-gray-300 rounded-md py-2 pl-3 pr-8 text-sm font-medium text-gray-700 hover:bg-gray-200"
+                                    >
+                                        {clientProfiles.map(profile => (
+                                            <option key={profile.id} value={profile.id}>
+                                                {profile.planta || profile.nombreCompleto}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+                            
+                            <button 
+                                onClick={handleSafeSignOut} 
+                                disabled={isWorking} 
+                                className={`font-bold py-2 px-4 rounded-lg transition duration-300 ${
+                                    isWorking 
+                                    ? 'bg-gray-400 text-gray-700 cursor-not-allowed' 
+                                    : 'bg-red-600 hover:bg-red-700 text-white'
+                                }`}
+                                title={isWorking ? "Debes 'Finalizar Día' antes de salir" : "Cerrar sesión"}
+                            >
+                                Salir
+                            </button>
+                        </div>
                     )}
                 </div>
-                {user && (
-                    <div className="flex items-center space-x-4">
-                        <span className="text-gray-600 hidden sm:block">
-                            Hola, {userData ? userData.nombreCompleto.split(' ')[0] : user.email}
-                        </span>
+            </header>
 
-                        {hasMultipleRoles && (
-                            <div className="relative">
-                                <select 
-                                    value={selectedRole}
-                                    onChange={(e) => setSelectedRole(e.target.value)}
-                                    className="appearance-none bg-gray-100 border border-gray-300 rounded-md py-2 pl-3 pr-8 text-sm font-medium text-gray-700 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                                >
-                                    {userData.roles.map(role => (
-                                        <option key={role} value={role} className="capitalize">{role.charAt(0).toUpperCase() + role.slice(1)}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        )}
-
-                        {hasMultipleClients && selectedRole === 'cliente' && (
-                            <div className="relative">
-                                <select 
-                                    value={selectedClientProfile?.id || ''}
-                                    onChange={handleClientChange}
-                                    className="appearance-none bg-gray-100 border border-gray-300 rounded-md py-2 pl-3 pr-8 text-sm font-medium text-gray-700 hover:bg-gray-200"
-                                >
-                                    {clientProfiles.map(profile => (
-                                        <option key={profile.id} value={profile.id}>
-                                            {profile.planta || profile.nombreCompleto}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                        )}
-                        
-                        <button 
-                            onClick={handleSafeSignOut} 
-                            disabled={isWorking} 
-                            className={`font-bold py-2 px-4 rounded-lg transition duration-300 ${
-                                isWorking ? 'bg-gray-400 text-gray-700 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 text-white'
-                            }`}
-                            title={isWorking ? "Debes 'Finalizar Día' antes de salir" : "Cerrar sesión"}
-                        >
-                            Salir
-                        </button>
-                    </div>
-                )}
-            </div>
-        </header>
+            {/* RENDERIZADO DEL MODAL (También protegido) */}
+            {showVacationModal && userData && canAccessVacations && (
+                <UserVacationPortal 
+                    user={user} 
+                    userData={userData} 
+                    onClose={() => setShowVacationModal(false)} 
+                />
+            )}
+        </>
     );
 };
 
@@ -1161,7 +1278,691 @@ const DataManagement = ({ collectionName, title, fields, placeholderTexts }) => 
 
 // -- DASHBOARDS POR ROL --
 
-// El dashboard del Administrador. Contiene las pestañas para gestionar proyectos, usuarios, servicios, proveedores.
+// Panel de RRHH recursos humanos
+const HRDashboard = () => {
+    const [employees, setEmployees] = useState([]);
+    const [vacationRequests, setVacationRequests] = useState([]);
+    const [editingId, setEditingId] = useState(null);
+    const [editData, setEditData] = useState({ 
+        fecha: '', 
+        acumulados: 0, 
+        tomadosManual: 0 
+    });
+    const [historyModalEmployee, setHistoryModalEmployee] = useState(null);
+
+    useEffect(() => {
+        const qUsers = query(collection(db, "usuarios"));
+        const unsubscribeUsers = onSnapshot(qUsers, (snapshot) => {
+            const usersData = snapshot.docs
+                .map(doc => ({ id: doc.id, ...doc.data() }))
+                .filter(user => {
+                    if (user.rol === 'cliente' || user.roles?.includes('cliente')) return false;
+
+                    const rolesDeNomina = ['tecnico', 'supervisor', 'practicante', 'ecotech'];
+                    const esOperativo = 
+                        rolesDeNomina.includes(user.rol) || 
+                        (user.roles && user.roles.some(r => rolesDeNomina.includes(r)));
+
+                    return esOperativo;
+                });
+            
+            setEmployees(usersData);
+        });
+        const qRequests = query(
+            collection(db, "solicitudesVacaciones"),
+            or(
+                where("estado", "==", "Pendiente RH"),
+                where("estado", "==", "Pendiente Supervisor")
+            )
+        );
+        const unsubscribeRequests = onSnapshot(qRequests, (snapshot) => {
+            const allPending = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const visibleToRH = allPending.filter(req => 
+                req.estado === 'Pendiente RH' || 
+                (req.estado === 'Pendiente Supervisor' && req.rol === 'supervisor')
+            );
+            
+            setVacationRequests(visibleToRH);
+        });
+
+        return () => {
+            unsubscribeUsers();
+            unsubscribeRequests();
+        };
+    }, []);
+
+    const handleSaveData = async (userId) => {
+        const userRef = doc(db, "usuarios", userId);
+        try {
+            const updatePayload = {
+                diasAcumuladosAnteriores: Number(editData.acumulados) || 0,
+                diasTomadosManuales: Number(editData.tomadosManual) || 0
+            };
+            if (editData.fecha) {
+                updatePayload.fechaIngreso = Timestamp.fromDate(new Date(editData.fecha + 'T12:00:00'));
+            }
+            await updateDoc(userRef, updatePayload);
+            setEditingId(null);
+            toast.success("Datos actualizados");
+        } catch (error) {
+            console.error("Error:", error);
+            alert("No se pudieron actualizar los datos.");
+        }
+    };
+
+    return (
+        <div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-6">Gestión de Recursos Humanos</h1>
+            
+            <div className="mb-8">
+                <h2 className="text-xl font-bold text-gray-800 mb-4">Solicitudes Pendientes</h2>
+                <VacationRequestsTable requests={vacationRequests} viewerRole="rh" onActionComplete={() => {}} />
+            </div>
+
+            <div className="bg-white rounded-xl shadow overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+                    <h2 className="text-lg font-semibold text-gray-700">Nómina de Empleados</h2>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                            <tr>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Empleado</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Ingreso</th>
+                                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase bg-green-50">Saldo Disponible</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                            {employees.map(emp => {
+                                const balance = calculateVacationBalance(emp.fechaIngreso, emp.historialVacaciones || []);
+                                
+                                return (
+                                    <tr key={emp.id}>
+                                        <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">
+                                            {emp.nombreCompleto}
+                                            <div className="text-xs text-gray-500 font-normal">Antigüedad: {balance.antiguedad} años</div>
+                                        </td>
+                                        
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                            {editingId === emp.id ? (
+                                                <div className="flex items-center space-x-2">
+                                                    <input type="date" className="border rounded p-1 text-xs w-32" value={editData.fecha} onChange={(e) => setEditData({...editData, fecha: e.target.value})} />
+                                                    <button onClick={() => handleSaveData(emp.id)} className="text-green-600 font-bold">✓</button>
+                                                    <button onClick={() => setEditingId(null)} className="text-red-600">✕</button>
+                                                </div>
+                                            ) : (
+                                                <div className="flex items-center space-x-2">
+                                                    <span>{emp.fechaIngreso ? emp.fechaIngreso.toDate().toLocaleDateString('es-MX') : '---'}</span>
+                                                    <button onClick={() => setEditingId(emp.id)} className="text-gray-400 hover:text-blue-600">✏️</button>
+                                                </div>
+                                            )}
+                                        </td>
+
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-center bg-green-50 text-green-700 text-lg">
+                                            {emp.fechaIngreso ? balance.disponibles : '-'}
+                                        </td>
+
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                            <button 
+                                                onClick={() => setHistoryModalEmployee(emp)} 
+                                                className="text-blue-600 hover:text-blue-900 font-semibold"
+                                            >
+                                                Ver Bitácora / Ajustar
+                                            </button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {historyModalEmployee && (
+                <EmployeeHistoryModal 
+                    employee={historyModalEmployee} 
+                    onClose={() => setHistoryModalEmployee(null)} 
+                    onUpdate={() => {}}
+                />
+            )}
+        </div>
+    );
+};
+
+// historial de vacaciones de los empleados
+const EmployeeHistoryModal = ({ employee, onClose, onUpdate }) => {
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
+    const [reason, setReason] = useState('');
+    const [loading, setLoading] = useState(false);
+    const history = (employee.historialVacaciones || []).sort((a, b) => 
+        b.fechaInicio.seconds - a.fechaInicio.seconds
+    );
+
+    const handleAddManual = async () => {
+        if (!startDate || !endDate) return alert("Fechas requeridas");
+        
+        const start = new Date(startDate + 'T12:00:00');
+        const end = new Date(endDate + 'T12:00:00');
+
+        if (end < start) return alert("La fecha fin no puede ser antes de la inicio");
+
+        const businessDays = calculateBusinessDays(start, end);
+
+        if (businessDays === 0) return alert("El rango seleccionado no tiene días hábiles.");
+
+        setLoading(true);
+        try {
+            const userRef = doc(db, "usuarios", employee.id);
+            
+            const nuevoRegistro = {
+                id: Date.now().toString(),
+                fechaInicio: Timestamp.fromDate(start),
+                fechaFin: Timestamp.fromDate(end),
+                dias: businessDays,
+                motivo: reason || "Registro Manual RH",
+                tipo: "Manual (RH)",
+                fechaRegistro: Timestamp.now()
+            };
+
+            await updateDoc(userRef, {
+                historialVacaciones: arrayUnion(nuevoRegistro)
+            });
+
+            toast.success(`Registrados ${businessDays} días hábiles.`);
+            onUpdate();
+            setStartDate('');
+            setEndDate('');
+            setReason('');
+        } catch (error) {
+            console.error(error);
+            toast.error("Error al guardar.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const formatDate = (timestamp) => timestamp ? timestamp.toDate().toLocaleDateString('es-MX') : '-';
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
+            <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-3xl h-[80vh] flex flex-col">
+                <div className="flex justify-between items-center mb-4">
+                    <div>
+                        <h3 className="text-lg font-bold">Historial de Vacaciones</h3>
+                        <p className="text-sm text-gray-600">{employee.nombreCompleto}</p>
+                    </div>
+                    <button onClick={onClose} className="text-gray-500 hover:text-gray-800 text-2xl font-bold">&times;</button>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 flex-grow overflow-hidden">
+                    <div className="bg-gray-50 p-4 rounded-lg border overflow-y-auto">
+                        <h4 className="font-bold text-sm text-gray-700 mb-3">Agregar Registro Manual</h4>
+                        <div className="space-y-3">
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500">Desde</label>
+                                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full p-2 border rounded-md text-sm"/>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500">Hasta</label>
+                                <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full p-2 border rounded-md text-sm"/>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500">Motivo</label>
+                                <input type="text" value={reason} onChange={e => setReason(e.target.value)} className="w-full p-2 border rounded-md text-sm"/>
+                            </div>
+                            <button onClick={handleAddManual} disabled={loading} className="w-full bg-blue-600 text-white font-bold py-2 rounded-md text-sm hover:bg-blue-700">
+                                {loading ? 'Guardando...' : 'Registrar'}
+                            </button>
+                            <p className="text-xs text-gray-500 mt-2 italic">* Se descontarán solo los días hábiles (L-V).</p>
+                        </div>
+                    </div>
+                    <div className="md:col-span-2 overflow-y-auto pr-2">
+                        <h4 className="font-bold text-sm text-gray-700 mb-3">Bitácora de Días Tomados</h4>
+                        {history.length === 0 ? (
+                            <p className="text-gray-400 text-sm text-center mt-10">Sin registros.</p>
+                        ) : (
+                            <table className="min-w-full text-sm">
+                                <thead className="bg-gray-100 sticky top-0">
+                                    <tr>
+                                        <th className="px-4 py-2 text-left font-medium text-gray-600">Fechas</th>
+                                        <th className="px-4 py-2 text-center font-medium text-gray-600">Días</th>
+                                        <th className="px-4 py-2 text-left font-medium text-gray-600">Motivo/Origen</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                    {history.map((reg, idx) => (
+                                        <tr key={idx}>
+                                            <td className="px-4 py-2 text-gray-800">
+                                                {formatDate(reg.fechaInicio)} - {formatDate(reg.fechaFin)}
+                                            </td>
+                                            <td className="px-4 py-2 text-center font-bold text-red-600">
+                                                -{reg.dias}
+                                            </td>
+                                            <td className="px-4 py-2 text-gray-600">
+                                                {reg.motivo} <span className="text-xs text-gray-400 block">({reg.tipo})</span>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+//panel para ver y solicitar vacaciones 
+const UserVacationPortal = ({ user, userData, onClose }) => {
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
+    const [reason, setReason] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [requests, setRequests] = useState([]);
+
+    useEffect(() => {
+        const q = query(collection(db, "solicitudesVacaciones"), where("uid", "==", user.uid));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setRequests(data);
+        });
+        return () => unsubscribe();
+    }, [user.uid]);
+
+    const balanceOficial = React.useMemo(() => {
+        return calculateVacationBalance(
+            userData.fechaIngreso, 
+            userData.historialVacaciones || []
+        );
+    }, [userData]);
+
+    const diasEnTramite = React.useMemo(() => {
+        return requests
+            .filter(r => r.estado && r.estado.includes('Pendiente'))
+            .reduce((acc, r) => acc + (Number(r.diasSolicitados) || 0), 0);
+    }, [requests]);
+
+    const saldoVisible = balanceOficial.disponibles - diasEnTramite;
+    const { upcoming, history } = React.useMemo(() => {
+        const now = new Date(); 
+        now.setHours(0, 0, 0, 0);
+
+        let pendingList = [];
+        let rejectedList = [];
+        let approvedFutureList = [];
+        let approvedPastList = [];
+
+        requests.forEach(req => {
+            if (req.estado === 'Rechazado') {
+                rejectedList.push({
+                    id: req.id,
+                    fechaInicio: req.fechaInicio,
+                    fechaFin: req.fechaFin,
+                    dias: req.diasSolicitados,
+                    motivo: req.motivo,
+                    estado: 'Rechazado',
+                    motivoRechazo: req.motivoRechazo,
+                    tipo: 'Solicitud'
+                });
+            } else if (req.estado && req.estado.includes('Pendiente')) {
+                pendingList.push({
+                    id: req.id,
+                    fechaInicio: req.fechaInicio,
+                    fechaFin: req.fechaFin,
+                    dias: req.diasSolicitados,
+                    motivo: req.motivo,
+                    estado: req.estado,
+                    isPending: true,
+                    tipo: 'Solicitud'
+                });
+            }
+        });
+
+        const rawHistory = userData.historialVacaciones || [];
+        rawHistory.forEach(reg => {
+            const end = reg.fechaFin.toDate();
+            end.setHours(0,0,0,0);
+            
+            if (end >= now) {
+                approvedFutureList.push({ ...reg, estado: 'Aprobado (Agendado)' });
+            } else {
+                approvedPastList.push({ ...reg, estado: 'Completado' });
+            }
+        });
+
+        const finalUpcoming = [...pendingList, ...approvedFutureList].sort((a, b) => 
+            a.fechaInicio.seconds - b.fechaInicio.seconds
+        );
+
+        const finalHistory = [...rejectedList, ...approvedPastList].sort((a, b) => 
+            b.fechaInicio.seconds - a.fechaInicio.seconds
+        );
+
+        return { upcoming: finalUpcoming, history: finalHistory };
+    }, [requests, userData.historialVacaciones]);
+
+
+    const handleRequest = async () => {
+        if (!startDate || !endDate) return toast.error("Fechas incompletas");
+        const start = new Date(startDate + 'T12:00:00');
+        const end = new Date(endDate + 'T12:00:00');
+        if (end < start) return toast.error("Fecha fin inválida");
+
+        const businessDays = calculateBusinessDays(start, end);
+        if (businessDays === 0) return toast.error("No hay días hábiles.");
+        
+        if (businessDays > saldoVisible) {
+            return toast.error(`Saldo insuficiente. Disponibles: ${saldoVisible} días.`);
+        }
+
+        setLoading(true);
+        try {
+            await addDoc(collection(db, "solicitudesVacaciones"), {
+                uid: user.uid,
+                nombre: userData.nombreCompleto,
+                rol: userData.rol || userData.roles?.[0],
+                fechaSolicitud: Timestamp.now(),
+                fechaInicio: Timestamp.fromDate(start),
+                fechaFin: Timestamp.fromDate(end),
+                diasSolicitados: businessDays,
+                motivo: reason,
+                estado: 'Pendiente Supervisor', 
+                aprobadoSupervisor: false,
+                aprobadoRH: false
+            });
+            toast.success("Solicitud enviada.");
+            setStartDate(''); setEndDate(''); setReason('');
+        } catch (error) { toast.error("Error al solicitar."); }
+        finally { setLoading(false); }
+    };
+
+    const formatDate = (ts) => ts ? ts.toDate().toLocaleDateString('es-MX') : '';
+    
+    const getStatusClass = (status) => {
+        if (status === 'Rechazado') return 'bg-red-50 border-red-200';
+        if (status && status.includes('Pendiente')) return 'bg-yellow-50 border-yellow-200';
+        if (status && status.includes('Aprobado')) return 'bg-green-50 border-green-200';
+        return 'bg-white border-gray-200';
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
+            <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-2xl h-[85vh] flex flex-col">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-xl font-bold text-gray-800">Mis Vacaciones</h3>
+                    <button onClick={onClose} className="text-gray-500 hover:text-gray-800 text-2xl font-bold">&times;</button>
+                </div>
+
+                <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-xl p-6 text-white shadow-lg mb-6">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <p className="text-blue-100 text-sm font-medium">Disponibles</p>
+                            <p className="text-5xl font-bold mt-1">{saldoVisible}</p>
+                            <p className="text-xs text-blue-200 mt-1">Días hábiles</p>
+                        </div>
+                        <div className="text-right text-sm text-blue-100 space-y-1">
+                            <p>Correspondientes: <span className="font-bold text-white">{balanceOficial.totalGenerado}</span></p>
+                            <p>Tomados: <span className="font-bold text-white">-{balanceOficial.tomados}</span></p>
+                            {diasEnTramite > 0 && (
+                                <p className="text-yellow-300 font-bold bg-white/10 px-2 py-0.5 rounded inline-block">
+                                    En Trámite: -{diasEnTramite}
+                                </p>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex-grow overflow-y-auto pr-2 space-y-6">
+                    <div className="bg-gray-50 p-4 rounded-lg border">
+                        <h4 className="font-bold text-gray-700 mb-3">Nueva Solicitud</h4>
+                        {!userData.fechaIngreso ? <p className="text-red-500 text-sm">Sin fecha de ingreso. Contacta a RH.</p> : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div><label className="block text-xs font-bold text-gray-500">Desde</label><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full p-2 border rounded-md"/></div>
+                                <div><label className="block text-xs font-bold text-gray-500">Hasta</label><input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full p-2 border rounded-md"/></div>
+                                <div className="md:col-span-2"><input type="text" value={reason} onChange={e => setReason(e.target.value)} placeholder="Motivo (Opcional)" className="w-full p-2 border rounded-md"/></div>
+                                <div className="md:col-span-2"><button onClick={handleRequest} disabled={loading} className="w-full bg-blue-600 text-white font-bold py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50">{loading ? 'Enviando...' : 'Solicitar'}</button></div>
+                            </div>
+                        )}
+                    </div>
+
+                    {upcoming.length > 0 && (
+                        <div>
+                            <h4 className="font-bold text-gray-700 mb-2 text-sm uppercase tracking-wide">Próximas / En Trámite</h4>
+                            <div className="space-y-2">
+                                {upcoming.map((req, idx) => (
+                                    <div key={idx} className={`border rounded-lg p-3 flex justify-between items-center ${getStatusClass(req.estado)}`}>
+                                        <div>
+                                            <p className="font-bold text-gray-800">{formatDate(req.fechaInicio)} - {formatDate(req.fechaFin)}</p>
+                                            <p className="text-xs text-gray-600">{req.dias || req.diasSolicitados} días • {req.motivo}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <span className={`px-2 py-1 text-xs font-bold rounded-full ${req.isPending ? 'bg-yellow-200 text-yellow-900' : 'bg-green-200 text-green-900'}`}>
+                                                {req.estado}
+                                            </span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    <div>
+                        <h4 className="font-bold text-gray-700 mb-2 text-sm uppercase tracking-wide">Historial</h4>
+                        {history.length === 0 ? <p className="text-gray-400 text-sm italic">Sin historial.</p> : (
+                            <div className="space-y-2">
+                                {history.map((reg, idx) => (
+                                    <div key={idx} className={`border rounded-lg p-3 flex justify-between items-start ${getStatusClass(reg.estado)}`}>
+                                        <div>
+                                            <p className={`font-medium ${reg.estado === 'Rechazado' ? 'text-red-800' : 'text-gray-800'}`}>
+                                                {formatDate(reg.fechaInicio)} - {formatDate(reg.fechaFin)}
+                                            </p>
+                                            <p className="text-xs text-gray-500">{reg.motivo}</p>
+                                            {reg.estado === 'Rechazado' && reg.motivoRechazo && (
+                                                <div className="mt-1 text-xs text-red-600 font-semibold bg-white px-2 py-1 rounded border border-red-100 inline-block">
+                                                    Motivo: {reg.motivoRechazo}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="text-right">
+                                            {reg.estado === 'Rechazado' ? (
+                                                <span className="text-xs font-bold text-red-600 bg-red-100 px-2 py-1 rounded">Rechazado</span>
+                                            ) : (
+                                                <p className="font-bold text-gray-500">-{reg.dias}</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+//logica para solicitud de vacaciones 
+const VacationRequestsTable = ({ requests, viewerRole, onActionComplete }) => {
+    const [confirmingAction, setConfirmingAction] = useState(null);
+    const [processingId, setProcessingId] = useState(null);
+
+    const promptAction = (request, actionType) => {
+        if (actionType === 'approve') {
+            setConfirmingAction({
+                type: 'approve',
+                request,
+                title: "Aprobar Solicitud",
+                message: viewerRole === 'supervisor' 
+                    ? "¿Deseas aprobar esta solicitud?"
+                    : "¿Deseas aprobar esta solicitud?"
+            });
+        } else if (actionType === 'reject') {
+            setConfirmingAction({
+                type: 'reject',
+                request,
+                title: "Rechazar Solicitud",
+                message: "Indica el motivo del rechazo para notificar al empleado:",
+                confirmText: "Rechazar Solicitud",
+                confirmColor: "bg-red-600"
+            });
+        }
+    };
+
+    const handleApprove = async () => {
+        if (!confirmingAction) return;
+        const { request } = confirmingAction;
+        setProcessingId(request.id);
+        
+        try {
+            const requestRef = doc(db, "solicitudesVacaciones", request.id);
+
+            if (viewerRole === 'supervisor') {
+                await updateDoc(requestRef, { 
+                    estado: 'Pendiente RH', 
+                    aprobadoSupervisor: true,
+                    fechaAprobacionSupervisor: Timestamp.now()
+                });
+                toast.success("Aprobado. Enviado a RH.");
+            } 
+            else if (viewerRole === 'rh') {
+                await runTransaction(db, async (transaction) => {
+                    const userRef = doc(db, "usuarios", request.uid);
+                    
+                    const nuevoRegistro = {
+                        id: request.id,
+                        fechaInicio: request.fechaInicio,
+                        fechaFin: request.fechaFin,
+                        dias: request.diasSolicitados,
+                        motivo: request.motivo || "Solicitud App",
+                        tipo: "Solicitud App",
+                        fechaRegistro: Timestamp.now()
+                    };
+                    
+                    transaction.update(userRef, { historialVacaciones: arrayUnion(nuevoRegistro) });
+                    transaction.update(requestRef, { 
+                        estado: 'Aprobado', 
+                        aprobadoRH: true,
+                        fechaAprobacionRH: Timestamp.now()
+                    });
+                });
+                toast.success("Solicitud finalizada y días descontados.");
+            }
+            onActionComplete();
+        } catch (error) {
+            console.error(error);
+            toast.error("Error al procesar.");
+        } finally {
+            setProcessingId(null);
+            setConfirmingAction(null);
+        }
+    };
+
+    const handleReject = async (reason) => {
+        if (!confirmingAction) return;
+        const { request } = confirmingAction;
+        
+        if (!reason || reason.trim() === "") {
+            alert("Debes escribir un motivo.");
+            return;
+        }
+
+        setProcessingId(request.id);
+        try {
+            const requestRef = doc(db, "solicitudesVacaciones", request.id);
+            await updateDoc(requestRef, { 
+                estado: 'Rechazado', 
+                rechazadoPor: viewerRole,
+                motivoRechazo: reason,
+                fechaRechazo: Timestamp.now()
+            });
+            toast.info("Solicitud rechazada.");
+            onActionComplete();
+        } catch (error) {
+            console.error(error);
+            toast.error("Error al rechazar.");
+        } finally {
+            setProcessingId(null);
+            setConfirmingAction(null);
+        }
+    };
+
+    return (
+        <>
+            <div className="overflow-x-auto bg-white rounded-lg shadow">
+                <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                        <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Empleado</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fechas</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Días</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Motivo</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                        {requests.length === 0 ? (
+                            <tr><td colSpan="5" className="px-6 py-4 text-center text-gray-500">No hay solicitudes pendientes.</td></tr>
+                        ) : (
+                            requests.map(req => (
+                                <tr key={req.id}>
+                                    <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                                        {req.nombre} <br/>
+                                        <span className="text-xs text-gray-500 capitalize">{req.rol}</span>
+                                    </td>
+                                    <td className="px-6 py-4 text-sm text-gray-600">
+                                        {req.fechaInicio.toDate().toLocaleDateString()} - {req.fechaFin.toDate().toLocaleDateString()}
+                                    </td>
+                                    <td className="px-6 py-4 text-sm font-bold text-blue-600">{req.diasSolicitados}</td>
+                                    <td className="px-6 py-4 text-sm text-gray-600">{req.motivo || '---'}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                                        <button 
+                                            onClick={() => promptAction(req, 'approve')} 
+                                            disabled={processingId === req.id}
+                                            className="text-green-600 hover:text-green-900 font-bold disabled:opacity-50"
+                                        >
+                                            Aprobar
+                                        </button>
+                                        <button 
+                                            onClick={() => promptAction(req, 'reject')} 
+                                            disabled={processingId === req.id}
+                                            className="text-red-600 hover:text-red-900 font-bold disabled:opacity-50"
+                                        >
+                                            Rechazar
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))
+                        )}
+                    </tbody>
+                </table>
+            </div>
+
+            {confirmingAction?.type === 'approve' && (
+                <ConfirmationModal 
+                    title={confirmingAction.title} 
+                    message={confirmingAction.message} 
+                    onConfirm={handleApprove} 
+                    onCancel={() => setConfirmingAction(null)} 
+                />
+            )}
+            {confirmingAction?.type === 'reject' && (
+                <ActionWithReasonModal 
+                    title={confirmingAction.title} 
+                    message={confirmingAction.message} 
+                    onConfirm={handleReject} 
+                    onCancel={() => setConfirmingAction(null)} 
+                    confirmText={confirmingAction.confirmText}
+                    confirmColor={confirmingAction.confirmColor}
+                />
+            )}
+        </>
+    );
+};
+
+// El dashboard del Administrador, contiene las pestañas para gestionar proyectos, usuarios, servicios, proveedores.
 const AdminDashboard = ({ user, userData, selectedRole }) => {
     const [view, setView] = useState('projects');
     const [projects, setProjects] = useState([]);
@@ -1841,8 +2642,9 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                         <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicio</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">NPU</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Documentos</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
                         </tr>
@@ -1850,8 +2652,9 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
                     <tbody className="bg-white divide-y divide-gray-200">
                         {projects.map(project => (
                              <tr key={project.id}>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.npu}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.clienteNombre}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm">{project.servicioNombre}</td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm">{project.npu}</td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm">
                                     <div className="flex flex-col space-y-1">
                                         {project.urlHeyzine && <a href={project.urlHeyzine} target="_blank" rel="noopener noreferrer" className="text-blue-600">Ver Proyecto</a>}
@@ -1860,7 +2663,7 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
                                     </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                    <div className="flex space-x-4">
+                                    <div className="flex flex-col space-y-1">
                                         <button onClick={() => promptApprove(project)} className="text-green-600 hover:text-green-900">Aprobar</button>
                                         <button onClick={() => promptReject(project.id)} className="text-orange-600 hover:text-orange-900">Rechazar</button>
                                     </div>
@@ -3429,6 +4232,7 @@ const SupervisorDashboard = ({ user, userData, selectedRole }) => {
     const [allProjects, setAllProjects] = useState([]);
     const [technicians, setTechnicians] = useState([]);
     const [reviewProjects, setReviewProjects] = useState([]);
+    const [vacationRequests, setVacationRequests] = useState([]);
     const [loading, setLoading] = useState(true);
     const [modalProject, setModalProject] = useState(null);
     const [assignModalProject, setAssignModalProject] = useState(null);
@@ -3439,22 +4243,24 @@ const SupervisorDashboard = ({ user, userData, selectedRole }) => {
             const qTechsOld = query(collection(db, "usuarios"), where("rol", "==", "tecnico"));
             const qTechsNew = query(collection(db, "usuarios"), where("roles", "array-contains", "tecnico"));
             const qReview = query(collection(db, PROYECTOS_COLLECTION), where("estado", "==", "En Revisión Final"));
+            const qVacations = query(collection(db, "solicitudesVacaciones"), where("estado", "==", "Pendiente Supervisor"));
 
-            const [projectsSnapshot, techsOldSnapshot, techsNewSnapshot, reviewSnapshot] = await Promise.all([
+            const [projectsSnap, techsOldSnap, techsNewSnap, reviewSnap, vacationsSnap] = await Promise.all([
                 getDocs(qProjects),
                 getDocs(qTechsOld),
                 getDocs(qTechsNew),
                 getDocs(qReview),
+                getDocs(qVacations)
             ]);
 
-            const projectsData = projectsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            const techMap = new Map();
-            techsOldSnapshot.forEach(doc => techMap.set(doc.id, { id: doc.id, ...doc.data() }));
-            techsNewSnapshot.forEach(doc => techMap.set(doc.id, { id: doc.id, ...doc.data() }));
-            
+            const projectsData = projectsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setAllProjects(projectsData);
+            const techMap = new Map();
+            techsOldSnap.forEach(doc => techMap.set(doc.id, { id: doc.id, ...doc.data() }));
+            techsNewSnap.forEach(doc => techMap.set(doc.id, { id: doc.id, ...doc.data() }));
             setTechnicians(Array.from(techMap.values()));
-            setReviewProjects(reviewSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setReviewProjects(reviewSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setVacationRequests(vacationsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
 
         } catch (err) {
             console.error("Error fetching supervisor data:", err);
@@ -3467,20 +4273,6 @@ const SupervisorDashboard = ({ user, userData, selectedRole }) => {
         setLoading(true);
         fetchData();
     }, []);
-
-    useEffect(() => {
-        if (view !== 'review') {
-            setReviewProjects([]);
-            return;
-        }
-
-        const q = query(collection(db, PROYECTOS_COLLECTION), where("estado", "==", "En Revisión Final"));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            setReviewProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        });
-
-        return () => unsubscribe();
-    }, [view]);
 
     const processedData = React.useMemo(() => {
         if (technicians.length === 0) return { healthData: [], newProjects: [], projectsByTechnician: {}, projectsForReview: [] };
@@ -3543,10 +4335,12 @@ const SupervisorDashboard = ({ user, userData, selectedRole }) => {
     return (
         <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-6">Panel de Supervisión</h1>
-            {loading ? <p>Calculando métricas...</p> : (
+            {loading ? <p>Calculando métricas del equipo...</p> : (
                 <div className="grid grid-cols-1 lg:grid-cols-[1fr,3fr] gap-8">
+
                     <div className="space-y-4">
                         <h2 className="text-lg font-semibold text-gray-700">Vistas de Gestión</h2>
+
                         <button onClick={() => setView('new')} className={`w-full p-3 rounded-lg text-left transition-colors ${view === 'new' ? 'bg-blue-600 text-white shadow-lg' : 'bg-white hover:bg-gray-50'}`}>
                             <div className="flex justify-between items-center">
                                 <span className="font-bold">Nuevos por Asignar</span>
@@ -3559,6 +4353,14 @@ const SupervisorDashboard = ({ user, userData, selectedRole }) => {
                                 {reviewProjects.length > 0 && <span className="px-2 py-0.5 text-xs font-bold text-white bg-red-500 rounded-full">{reviewProjects.length}</span>}
                             </div>
                         </button>
+
+                        <button onClick={() => setView('vacations')} className={`w-full p-3 rounded-lg text-left transition-colors ${view === 'vacations' ? 'bg-blue-600 text-white shadow-lg' : 'bg-white hover:bg-gray-50'}`}>
+                             <div className="flex justify-between items-center">
+                                <span className="font-bold">Solicitudes Vacaciones</span>
+                                {vacationRequests.length > 0 && <span className="px-2 py-0.5 text-xs font-bold text-white bg-red-500 rounded-full">{vacationRequests.length}</span>}
+                            </div>
+                        </button>
+
                         <hr className="my-4"/>
                         <h2 className="text-lg font-semibold text-gray-700">Equipo Técnico</h2>
                         <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2">
@@ -3569,18 +4371,45 @@ const SupervisorDashboard = ({ user, userData, selectedRole }) => {
                             ))}
                         </div>
                     </div>
+                    
                     <div className="min-w-0">
-                        {view === 'new' && <ProjectsTable projects={processedData.newProjects} userRole="supervisor" supervisorView="new" onAssignClick={setAssignModalProject} user={user} userData={userData} selectedRole={selectedRole}/>}
-                        {view === 'review' && <ReviewProjectsTable projects={reviewProjects} onUpdateProject={fetchData} />}
+                        {view === 'new' && (
+                            <ProjectsTable 
+                                projects={processedData.newProjects} 
+                                userRole="supervisor" 
+                                supervisorView="new" 
+                                onAssignClick={setAssignModalProject} 
+                                user={user} userData={userData} selectedRole={selectedRole}
+                            />
+                        )}
+                        
+                        {view === 'review' && (
+                            <ReviewProjectsTable projects={reviewProjects} onUpdateProject={fetchData} />
+                        )}
+                        
+                        {view === 'vacations' && (
+                            <VacationRequestsTable 
+                                requests={vacationRequests} 
+                                viewerRole="supervisor" 
+                                onActionComplete={fetchData} 
+                            />
+                        )}
 
                         {processedData.projectsByTechnician[view] && (
-                            <ProjectsTable projects={processedData.projectsByTechnician[view]} userRole="supervisor" supervisorView="techDetail" onManageClick={setModalProject} onAssignClick={setAssignModalProject} user={user} userData={userData} selectedRole={selectedRole} />
+                            <ProjectsTable
+                                projects={processedData.projectsByTechnician[view]}
+                                userRole="supervisor"
+                                supervisorView="techDetail"
+                                onManageClick={setModalProject}
+                                onAssignClick={setAssignModalProject}
+                                user={user} userData={userData} selectedRole={selectedRole}
+                            />
                         )}
                     </div>
                 </div>
             )}
-
-            {modalProject && <ProjectManagementModal project={modalProject} onClose={() => setModalProject(null)} onUpdate={fetchData} {...{user, userData, userRole:"supervisor"}} />}
+            
+            {modalProject && <ProjectManagementModal project={modalProject} onClose={() => setModalProject(null)} onUpdate={fetchData} user={user} userData={userData} userRole="supervisor" />}
             {assignModalProject && <AssignProjectModal project={assignModalProject} onClose={() => setAssignModalProject(null)} onFinalized={fetchData} />}
         </div>
     );
@@ -5361,6 +6190,8 @@ const Dashboard = ({ user, userData, selectedRole, setIsTechnicianWorking, selec
                 return <PracticanteDashboard />;
             case 'antecedentes': 
                 return <AntecedentesDashboard />;
+            case 'rh':
+                return <HRDashboard />;
             default:
                 return <div><h2 className="text-2xl font-bold">Rol no reconocido</h2><p>Contacte al administrador.</p></div>;
         }

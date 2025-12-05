@@ -2546,7 +2546,7 @@ const ProjectsTable = ({projects, onUpdateProject, userRole, supervisorView, onM
     );
 };
 
-//
+// Tabla de proyectos en revision 
 const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
     const [confirmingAction, setConfirmingAction] = useState(null);
 
@@ -2554,17 +2554,16 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
         if (!confirmingAction || confirmingAction.action !== 'approve') return;
         const { project } = confirmingAction.payload;
         const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
-
-        const isPreliminaryDelivery = project.fase1_fechaFinTecnico && !project.fase2_fechaFinTecnico;
-        
         const updatePayload = {};
 
-        if (isPreliminaryDelivery) {
-          
+        if (project.fase2_urlNotaEntregaFirmada) {
+            updatePayload.estado = 'Terminado';
+            updatePayload.estadoCliente = 'Terminado';
+        } 
+        else if (project.fase1_urlNotaEntregaFirmada) {
             updatePayload.estado = 'Activo'; 
             updatePayload.faseFacturacion = 'Fase 2 Pendiente'; 
             updatePayload.estadoCliente = 'Terminado';
-
 
             if (project.asignadoTecnicosIds) {
                 const newTechStatus = {};
@@ -2573,23 +2572,18 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
                 });
                 updatePayload.tecnicosStatus = newTechStatus;
             }
-
             const alreadyBilled = project.facturasClienteIds && project.facturasClienteIds.length > 0;
-
             if (!alreadyBilled) {
                 updatePayload.necesitaFactura = true;
-            } 
-
-        } else {
-            updatePayload.estado = 'Terminado';
-            updatePayload.estadoCliente = 'Terminado';
+            }
         }
         
         try {
             await updateDoc(projectRef, updatePayload);
+            toast.success("Proyecto procesado correctamente.");
         } catch (err) {
             console.error(err);
-            alert("Error al actualizar el proyecto.");
+            toast.error("Error al actualizar el proyecto.");
         }
         
         setConfirmingAction(null);
@@ -2612,15 +2606,21 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
     };
 
     const promptApprove = (project) => {
-        const isPhase1 = project.fase1_fechaFinTecnico && !project.fase2_fechaFinTecnico;
-        const message = isPhase1 
-            ? "Esta entrega es un ingreso, el cliente vera el proyecto como terminado pero seguira activo en espera del resolutivo. ¿Continuar?"
-            : "Esta es la entrega final. El proyecto se marcará como Terminado. ¿Continuar?";
+        const isPhase2Finish = !!project.fase2_urlNotaEntregaFirmada;
+        const isPhase1Reactivation = !!project.fase1_urlNotaEntregaFirmada && !isPhase2Finish;
+
+        let message = "¿Confirmar aprobación?";
+        
+        if (isPhase2Finish) {
+            message = "El proyecto se marcará como TERMINADO. ¿Continuar?";
+        } else if (isPhase1Reactivation) {
+            message = "El proyecto pasara a pendiente de resolutivo ¿Continuar?";
+        }
 
         setConfirmingAction({
             action: 'approve',
             payload: { project },
-            title: "Aprobar",
+            title: "Confirmar Aprobación",
             message: message,
         });
     };
@@ -2630,7 +2630,7 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
             action: 'reject',
             payload: { projectId },
             title: "Rechazar Proyecto",
-            message: "Por favor, introduce el motivo del rechazo.",
+            message: "Por favor, introduce el motivo del rechazo para notificar al practicante.",
             confirmText: "Rechazar",
             confirmColor: "bg-orange-600"
         });

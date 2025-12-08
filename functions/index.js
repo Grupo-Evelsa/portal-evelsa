@@ -162,11 +162,20 @@ exports.notifyNewLogEntry = onDocumentCreated({
   }
 });
 
+exports.cleanupReadNotifications =
+ onDocumentUpdated("notificaciones/{notifId}", async (event) => {
+   const afterData = event.data.after.data();
+   if (afterData.read === true) {
+     await event.data.after.ref.delete();
+   }
+ });
+
 exports.notifyProjectUpdate = onDocumentUpdated({
   document: PROYECTOS_COLLECTION + "/{projectId}",
   secrets: [slackBotToken],
 }, async (event) => {
   if (!event.data) return;
+  const projectId = event.params.projectId;
   const beforeData = event.data.before.data();
   const afterData = event.data.after.data();
 
@@ -274,6 +283,41 @@ exports.notifyProjectUpdate = onDocumentUpdated({
         afterData.urlCotizacionProveedor, afterData.urlPOProveedor];
     for (const fileUrl of filesToArchive) {
       await archiveFileToColdline(fileUrl);
+    }
+  }
+
+  const wasInReview = beforeData.estado === "En Revisión Final";
+  const isApproved = afterData.estado ===
+   "Activo" || afterData.estado === "Terminado" || afterData.estado ===
+    "Pendiente de Factura";
+
+  if (wasInReview && isApproved) {
+    log(`Proyecto ${projectId}
+       aprobado. Iniciando limpieza de datos técnicos.`);
+
+    const logsQuery = admin.firestore().collection(
+        "bitacoras_proyectos").where("projectId", "==", projectId);
+    const logsSnap = await logsQuery.get();
+    const batch = admin.firestore().batch();
+    logsSnap.docs.forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
+    log(`Bitácora limpiada: ${logsSnap.size} entradas eliminadas.`);
+
+    const updateCleanFields = {};
+
+    if (beforeData.fase1_urlEvidencia) {
+      await deleteFileFromUrl(beforeData.fase1_urlEvidencia);
+      updateCleanFields.fase1_urlEvidencia =
+       admin.firestore.FieldValue.delete();
+    }
+    if (beforeData.fase2_urlEvidencia) {
+      await deleteFileFromUrl(beforeData.fase2_urlEvidencia);
+      updateCleanFields.fase2_urlEvidencia =
+       admin.firestore.FieldValue.delete();
+    }
+
+    if (Object.keys(updateCleanFields).length > 0) {
+      await event.data.after.ref.update(updateCleanFields);
     }
   }
 });

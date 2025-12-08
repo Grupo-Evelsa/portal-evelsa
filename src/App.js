@@ -4930,6 +4930,7 @@ const ActiveTaskBanner = ({ task, onEndDay, onStartBreak, breakTakenToday }) => 
         </div>
     );
 };
+
 // El dashboard de Finanzas. Gestiona las facturas, cuentas por cobrar y por pagar.
 const FinanzasDashboard = ({ user, userData }) => {
     const [view, setView] = useState('dashboard');
@@ -4938,30 +4939,20 @@ const FinanzasDashboard = ({ user, userData }) => {
 
     const fetchPendingProjects = () => {
         setLoading(true);
-        const q = query(collection(db, PROYECTOS_COLLECTION), where("estado", "in", ["Pendiente de Factura", "Facturado"]));
+        const q = query(
+            collection(db, PROYECTOS_COLLECTION),
+            or(
+                where("necesitaFactura", "==", true),
+                where("estado", "==", "Pendiente de Factura")
+            )
+        );
         
         const unsubscribe = onSnapshot(q, (querySnapshot) => {
             const projectsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-            projectsData.forEach(project => {
-                if (project.estado === 'Facturado' && project.faseFacturacion === 'Preliminar') {
-                    console.log(`[AUTO-REACTIVACIÓN] Proyecto ${project.npu} detectado para Fase 2.`);
-                    const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
-                    const newTecnicosStatus = {};
-                    if (project.asignadoTecnicosIds) {
-                        project.asignadoTecnicosIds.forEach(techId => {
-                            newTecnicosStatus[techId] = 'En Proceso';
-                        });
-                    }
-                    updateDoc(projectRef, {
-                        estado: 'Activo',
-                        tecnicosStatus: newTecnicosStatus,
-                        faseFacturacion: 'Fase 2 Pendiente'
-                    });
-                }
-            });
-
-            setProjects(projectsData.filter(p => p.estado === 'Pendiente de Factura'));
+            setProjects(projectsData);
+            setLoading(false);
+        }, (error) => {
+            console.error("Error al cargar proyectos pendientes de facturación:", error);
             setLoading(false);
         });
         
@@ -5031,6 +5022,7 @@ const PendingInvoicesTable = () => {
     const [itemsPerPage, setItemsPerPage] = useState(10);
     const [modalProject, setModalProject] = useState(null);
 
+    //modal para subir la facturas
     const AttachInvoicesModal = ({ project, onClose, onFinalized }) => {
         const [mode, setMode] = useState('upload');
         const [clientXmlFile, setClientXmlFile] = useState(null);
@@ -5039,6 +5031,7 @@ const PendingInvoicesTable = () => {
         const [providerInvoiceData, setProviderInvoiceData] = useState(null);
         const [loading, setLoading] = useState(false);
         const [error, setError] = useState('');
+        
         const [linkableInvoices, setLinkableInvoices] = useState([]);
         const [selectedClientInvoiceId, setSelectedClientInvoiceId] = useState('');
         const [selectedProviderInvoiceId, setSelectedProviderInvoiceId] = useState('');
@@ -5090,7 +5083,28 @@ const PendingInvoicesTable = () => {
             setError('');
             try {
                 const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
-                const updatePayload = {necesitaFactura: false};
+                const updatePayload = {};
+                const hasClientInvoice = 
+                    (project.facturasClienteIds && project.facturasClienteIds.length > 0) || 
+                    (mode === 'upload' && clientXmlFile && clientInvoiceData) ||
+                    (mode === 'link' && selectedClientInvoiceId);
+
+                const hasProviderInvoice = 
+                    isInternalProvider ||
+                    (project.facturasProveedorIds && project.facturasProveedorIds.length > 0) ||
+                    (mode === 'upload' && providerXmlFile && providerInvoiceData) ||
+                    (mode === 'link' && selectedProviderInvoiceId);
+
+                if (hasClientInvoice && hasProviderInvoice) {
+                    updatePayload.necesitaFactura = false;
+
+                    if (project.estado === 'Pendiente de Factura') {
+                        updatePayload.estado = 'Terminado';
+                        updatePayload.estadoCliente = 'Terminado';
+                    }
+                } else {
+                    updatePayload.necesitaFactura = true;
+                }
 
                 if (mode === 'upload') {
                     if (clientXmlFile && clientInvoiceData) {
@@ -5129,8 +5143,7 @@ const PendingInvoicesTable = () => {
                         });
                         updatePayload.facturasProveedorIds = arrayUnion(newInvoiceRef.id);
                     }
-                } 
-                else {
+                } else {
                     if (selectedClientInvoiceId) {
                         await updateDoc(doc(db, "facturas", selectedClientInvoiceId), { proyectosIds: arrayUnion(project.id) });
                         updatePayload.facturasClienteIds = arrayUnion(selectedClientInvoiceId);
@@ -5181,17 +5194,14 @@ const PendingInvoicesTable = () => {
                                         {clientInvoiceData && (
                                             <div className="text-xs bg-gray-50 p-2 rounded-md mt-2 space-y-1">
                                                 <p><strong>Folio:</strong> {clientInvoiceData.folio}</p>
-                                                <p><strong>Subtotal:</strong> ${clientInvoiceData.subtotal.toFixed(2)}</p>
-                                                <p><strong>IVA:</strong> ${clientInvoiceData.iva.toFixed(2)}</p>
-                                                <p><strong>Total:</strong> ${clientInvoiceData.monto.toFixed(2)}</p>
-                                                <p><strong>Fecha:</strong> {clientInvoiceData.fechaEmision.toLocaleDateString()}</p>
-                                                <p className="truncate"><strong>UUID:</strong> {clientInvoiceData.uuid}</p>
+                                                <p><strong>Subtotal:</strong> ${clientInvoiceData.subtotal?.toFixed(2)}</p>
+                                                <p><strong>IVA:</strong> ${clientInvoiceData.iva?.toFixed(2)}</p>
+                                                <p><strong>Total:</strong> ${clientInvoiceData.monto?.toFixed(2)}</p>
                                             </div>
                                         )}
                                     </>
                                 )}
                             </div>
-
                             {!isInternalProvider && (
                                 <div className="space-y-4 p-4 border rounded-lg">
                                     <h4 className="font-semibold text-gray-800">Factura de Proveedor</h4>
@@ -5202,11 +5212,9 @@ const PendingInvoicesTable = () => {
                                             {providerInvoiceData && (
                                                 <div className="text-xs bg-gray-50 p-2 rounded-md mt-2 space-y-1">
                                                     <p><strong>Folio:</strong> {providerInvoiceData.folio}</p>
-                                                    <p><strong>Subtotal:</strong> ${providerInvoiceData.subtotal.toFixed(2)}</p>
-                                                    <p><strong>IVA:</strong> ${providerInvoiceData.iva.toFixed(2)}</p>
-                                                    <p><strong>Total:</strong> ${providerInvoiceData.monto.toFixed(2)}</p>
-                                                    <p><strong>Fecha:</strong> {providerInvoiceData.fechaEmision.toLocaleDateString()}</p>
-                                                    <p className="truncate"><strong>UUID:</strong> {providerInvoiceData.uuid}</p>
+                                                    <p><strong>Subtotal:</strong> ${providerInvoiceData.subtotal?.toFixed(2)}</p>
+                                                    <p><strong>IVA:</strong> ${providerInvoiceData.iva?.toFixed(2)}</p>
+                                                    <p><strong>Total:</strong> ${providerInvoiceData.monto?.toFixed(2)}</p>
                                                 </div>
                                             )}
                                         </>
@@ -5223,9 +5231,7 @@ const PendingInvoicesTable = () => {
                                 <select value={selectedClientInvoiceId} onChange={(e) => setSelectedClientInvoiceId(e.target.value)} className="block w-full border rounded-md p-2">
                                     <option value="">Seleccione una factura...</option>
                                     {linkableInvoices.filter(inv => inv.tipo === 'cliente').map(inv => (
-                                        <option key={inv.id} value={inv.id}>
-                                            {`Folio: ${inv.folio} - ${inv.clienteNombre || inv.descripcion} - $${inv.monto.toFixed(2)}`}
-                                        </option>
+                                        <option key={inv.id} value={inv.id}>{`Folio: ${inv.folio} - $${inv.monto?.toFixed(2)}`}</option>
                                     ))}
                                 </select>
                             </div>
@@ -5235,9 +5241,7 @@ const PendingInvoicesTable = () => {
                                     <select value={selectedProviderInvoiceId} onChange={(e) => setSelectedProviderInvoiceId(e.target.value)} className="block w-full border rounded-md p-2">
                                         <option value="">Seleccione una factura...</option>
                                         {linkableInvoices.filter(inv => inv.tipo === 'proveedor').map(inv => (
-                                            <option key={inv.id} value={inv.id}>
-                                                {`Folio: ${inv.folio} - ${inv.proveedorNombre || inv.descripcion} - $${inv.monto.toFixed(2)}`}
-                                            </option>
+                                            <option key={inv.id} value={inv.id}>{`Folio: ${inv.folio} - $${inv.monto?.toFixed(2)}`}</option>
                                         ))}
                                     </select>
                                 </div>
@@ -5338,8 +5342,8 @@ const PendingInvoicesTable = () => {
                                     </td>
                                     <td className="px-4 py-2 text-sm">
                                         <div className="flex flex-col">
-                                            <div className="px-6 py-4">{project.facturaClienteId ? <span className="text-green-600">✓ Adjuntada</span> : <span className="text-orange-500">Pendiente</span>}</div>
-                                            <div className="px-6 py-4">{project.proveedorNombre?.toLowerCase().includes("ecologia") ? <span className="text-gray-500">N/A</span> : project.facturaProveedorId ? <span className="text-green-600">✓ Adjuntada</span> : <span className="text-orange-500">Pendiente</span>}</div>
+                                            <div className="px-6 py-4">{project.facturasClienteIds?.length > 0 ? <span className="text-green-600">Adjunta</span> : <span className="text-orange-500">Pendiente</span>}</div>
+                                            <div className="px-6 py-4">{project.proveedorNombre?.toLowerCase().includes("ecologia") ? <span className="text-gray-500">N/A</span> : project.facturasProveedorIds?.length > 0 ? <span className="text-green-600">Adjunta</span> : <span className="text-orange-500">Pendiente</span>}</div>
                                         </div>
                                     </td>
                                     <td className="px-4 py-2">

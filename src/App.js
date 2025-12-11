@@ -2556,11 +2556,11 @@ const ReviewProjectsTable = ({ projects, onUpdateProject }) => {
         const projectRef = doc(db, PROYECTOS_COLLECTION, project.id);
         const updatePayload = {};
 
-        if (project.fase2_urlNotaEntregaFirmada) {
+        if (project.urlNotaPdf2) {
             updatePayload.estado = 'Terminado';
             updatePayload.estadoCliente = 'Terminado';
         } 
-        else if (project.fase1_urlNotaEntregaFirmada) {
+        else if (project.urlNotaPdf1) {
             updatePayload.estado = 'Activo'; 
             updatePayload.faseFacturacion = 'Fase 2 Pendiente'; 
             updatePayload.estadoCliente = 'Terminado';

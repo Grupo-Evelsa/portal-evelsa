@@ -257,17 +257,9 @@ const parseInvoiceXML = (xmlText) => {
             attributeNamePrefix: "@_",
             parseAttributeValue: true,
         });
-        const jsonData = parser.parse(xmlText);
         
+        const jsonData = parser.parse(xmlText);        
         const comprobante = jsonData["cfdi:Comprobante"];
-
-        const fechaRaw = comprobante.getAttribute("Fecha");
-        let fechaEmision = new Date();
-        
-        if (fechaRaw) {
-            const datePart = fechaRaw.split('T')[0]; 
-            fechaEmision = new Date(datePart + "T12:00:00"); 
-        }
 
         if (!comprobante) throw new Error("Nodo <cfdi:Comprobante> no encontrado.");
 
@@ -297,7 +289,7 @@ const parseInvoiceXML = (xmlText) => {
             subtotal: comprobante['@_SubTotal'],
             iva: iva,
             monto: comprobante['@_Total'],
-            fechaEmision: fechaEmision,
+            fechaEmision: new Date(comprobante['@_Fecha']),
             rfcEmisor: comprobante["cfdi:Emisor"]?.['@_Rfc'],
             rfcReceptor: comprobante["cfdi:Receptor"]?.['@_Rfc'],
         };

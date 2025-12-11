@@ -82,23 +82,23 @@ const rtdb = getDatabase(app);
 
 const formatDate = (timestamp) => {
     if (!timestamp) return '---';
-
+    
     let date;
-    if (typeof timestamp.toDate === 'function') {
+    if (timestamp && typeof timestamp.toDate === 'function') {
         date = timestamp.toDate();
     } else {
-        try {
-            date = new Date(timestamp);
-            if (isNaN(date.getTime())) return 'Fecha Inválida';
-        } catch (e) {
-            return 'Fecha Inválida';
-        }
+        date = new Date(timestamp);
     }
+
+    if (isNaN(date.getTime())) return '---';
 
     const userTimezoneOffset = date.getTimezoneOffset() * 60000;
     const adjustedDate = new Date(date.getTime() + userTimezoneOffset);
+    
     return adjustedDate.toLocaleDateString('es-MX', {
-        year: 'numeric', month: '2-digit', day: '2-digit'
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
     });
 };
 
@@ -258,8 +258,17 @@ const parseInvoiceXML = (xmlText) => {
             parseAttributeValue: true,
         });
         const jsonData = parser.parse(xmlText);
-
+        
         const comprobante = jsonData["cfdi:Comprobante"];
+
+        const fechaRaw = comprobante.getAttribute("Fecha");
+        let fechaEmision = new Date();
+        
+        if (fechaRaw) {
+            const datePart = fechaRaw.split('T')[0]; 
+            fechaEmision = new Date(datePart + "T12:00:00"); 
+        }
+
         if (!comprobante) throw new Error("Nodo <cfdi:Comprobante> no encontrado.");
 
         const complemento = comprobante["cfdi:Complemento"]?.["tfd:TimbreFiscalDigital"];
@@ -288,7 +297,7 @@ const parseInvoiceXML = (xmlText) => {
             subtotal: comprobante['@_SubTotal'],
             iva: iva,
             monto: comprobante['@_Total'],
-            fechaEmision: new Date(comprobante['@_Fecha']),
+            fechaEmision: fechaEmision,
             rfcEmisor: comprobante["cfdi:Emisor"]?.['@_Rfc'],
             rfcReceptor: comprobante["cfdi:Receptor"]?.['@_Rfc'],
         };

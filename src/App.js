@@ -3295,8 +3295,15 @@ const AccountsPayableDirectiveTable = ({ invoices, projectsMap }) => {
     const [providerFilter, setProviderFilter] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
+    const providers = React.useMemo(() => {
+        const names = invoices
+            .map(inv => inv.proveedorNombre)
+            .filter(name => name && name.trim() !== '');
+        return [...new Set(names)].sort();
+    }, [invoices]);
 
     const { processedInvoices, totalSum } = React.useMemo(() => {
+
         const activeInvoices = invoices.filter(inv =>
             inv.estado === 'Pend. de Autorización' || inv.estado === 'Prog. a Pago' || inv.estado === 'Vencida'
         );
@@ -3306,7 +3313,6 @@ const AccountsPayableDirectiveTable = ({ invoices, projectsMap }) => {
             : activeInvoices;
 
         const sum = filteredByProvider.reduce((acc, inv) => acc + (inv.monto || 0), 0);
-
         const finalInvoices = filteredByProvider.map(inv => {
             let projectBillingStatus = 'N/A';
             if (inv.proyectoId && inv.proyectoId !== 'general') {
@@ -3325,17 +3331,16 @@ const AccountsPayableDirectiveTable = ({ invoices, projectsMap }) => {
     const totalPages = Math.ceil(processedInvoices.length / itemsPerPage);
     const paginate = (pageNumber) => setCurrentPage(pageNumber);
 
-    const providers = [...new Set(invoices.map(inv => inv.proveedorNombre))].sort();
-
     const getInvoiceStatusBadge = (status) => {
         const styles = {
             'Prog. a Pago': 'bg-blue-100 text-blue-800',
             'Pend. de Autorización': 'bg-yellow-100 text-yellow-800',
-            'Vencida': 'bg-red-100 text-yellow-800',
+            'Vencida': 'bg-red-100 text-red-800',
         };
         return <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${styles[status] || 'bg-gray-100'}`}>{status}</span>;
     };
-     const getProjectBillingStatusBadge = (status) => {
+
+    const getProjectBillingStatusBadge = (status) => {
         const styles = {
             'Facturado': 'bg-green-100 text-green-800',
             'No Facturado': 'bg-red-100 text-red-800',
@@ -3344,20 +3349,19 @@ const AccountsPayableDirectiveTable = ({ invoices, projectsMap }) => {
         return <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${styles[status] || 'bg-gray-100'}`}>{status}</span>;
     };
 
-
     return (
         <div>
             <h2 className="text-xl font-bold text-gray-800 mb-4">Cuentas por Pagar</h2>
-            <div className="mb-4 flex justify-between items-center">
-                <div>
+            <div className="mb-4 flex flex-col md:flex-row justify-between items-center gap-4">
+                <div className="w-full md:w-auto">
                     <label htmlFor="provider-filter" className="text-sm font-medium mr-2">Filtrar por Proveedor:</label>
                     <select
                         id="provider-filter"
                         value={providerFilter}
                         onChange={(e) => { setProviderFilter(e.target.value); setCurrentPage(1); }}
-                        className="border-gray-300 rounded-md p-2 text-sm"
+                        className="border-gray-300 rounded-md p-2 text-sm w-full md:w-auto"
                     >
-                        <option value="">Todos</option>
+                        <option value="">Todos los Proveedores</option>
                         {providers.map(prov => <option key={prov} value={prov}>{prov}</option>)}
                     </select>
                 </div>
@@ -3375,36 +3379,43 @@ const AccountsPayableDirectiveTable = ({ invoices, projectsMap }) => {
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                         <tr>
-                            <th className="px-4 py-2 text-left text-xs font-medium">Factura</th>
-                            <th className="px-4 py-2 text-left text-xs font-medium">Proveedor</th>
-                            <th className="px-4 py-2 text-left text-xs font-medium">Monto</th>
-                            <th className="px-4 py-2 text-left text-xs font-medium">Fecha Prog. Pago</th>
-                            <th className="px-4 py-2 text-left text-xs font-medium">Estatus</th>
-                            <th className="px-4 py-2 text-left text-xs font-medium">Estatus Cobro</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Factura</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Proveedor</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Monto</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Fecha Prog. Pago</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Estatus</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Estatus Cobro</th>
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                        {currentItems.map(inv => (
-                            <tr key={inv.id}>
-                                <td className="px-4 py-2">{inv.folio}</td>
-                                <td className="px-4 py-2">{inv.proveedorNombre || 'N/A'}</td>
-                                <td className="px-4 py-2 font-semibold text-gray-900">${(inv.monto || 0).toFixed(2)}</td>
-                                <td className="px-4 py-2">{formatDate(inv.fechaPromesaPago)}</td>
-                                <td className="px-4 py-2">{getInvoiceStatusBadge(inv.estado)}</td>
-                                <td className="px-4 py-2">{getProjectBillingStatusBadge(inv.projectBillingStatus)}</td>
-                            </tr>
-                        ))}
+                        {currentItems.length === 0 ? (
+                            <tr><td colSpan="6" className="text-center py-4 text-gray-500">No hay cuentas por pagar activas.</td></tr>
+                        ) : (
+                            currentItems.map(inv => (
+                                <tr key={inv.id} className="hover:bg-gray-50">
+                                    <td className="px-4 py-2">{inv.folio}</td>
+                                    <td className="px-4 py-2">{inv.proveedorNombre || 'N/A'}</td>
+                                    <td className="px-4 py-2 font-semibold text-gray-900">${(inv.monto || 0).toFixed(2)}</td>
+                                    <td className="px-4 py-2">
+                                        {inv.fechaPromesaPago ? new Date(inv.fechaPromesaPago.seconds * 1000).toLocaleDateString('es-MX') : '-'}
+                                    </td>
+                                    <td className="px-4 py-2">{getInvoiceStatusBadge(inv.estado)}</td>
+                                    <td className="px-4 py-2">{getProjectBillingStatusBadge(inv.projectBillingStatus)}</td>
+                                </tr>
+                            ))
+                        )}
                     </tbody>
                     <tfoot className="bg-gray-100">
                         <tr>
-                            <td className="px-4 py-3 font-bold text-right">Total:</td>
+                            <td className="px-4 py-3 font-bold text-right" colSpan="2">Total:</td>
                             <td className="px-4 py-3 font-bold text-lg text-gray-900" colSpan="4">${totalSum.toFixed(2)}</td>
                         </tr>
                     </tfoot>
                 </table>
             </div>
+            
             <div className="mt-4 flex justify-between items-center">
-                <span className="text-sm text-gray-700">Página {currentPage} de {totalPages}</span>
+                <span className="text-sm text-gray-700">Página {currentPage} de {totalPages || 1}</span>
                 <div>
                     <button onClick={() => paginate(currentPage - 1)} disabled={currentPage === 1} className="px-3 py-1 border rounded-md bg-white mr-2 disabled:opacity-50">Anterior</button>
                     <button onClick={() => paginate(currentPage + 1)} disabled={currentPage === totalPages || totalPages === 0} className="px-3 py-1 border rounded-md bg-white disabled:opacity-50">Siguiente</button>

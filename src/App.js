@@ -4663,7 +4663,7 @@ const TecnicoDashboard = ({ user, userData, selectedRole, setIsWorkingState }) =
             });
             const numeroNota = `${anioActual}-${nuevoConsecutivo.toString().padStart(4, '0')}`;
 
-            const logoUrl = "https://www.grupoevelsa.com/assets/images/Logo Evelsa 2.png";
+            const logoUrl = "https://firebasestorage.googleapis.com/v0/b/portal-evelsa.firebasestorage.app/o/assets%2FLogo%20Evelsa%202.png?alt=media&token=a4802009-c606-4f79-996b-d3ab233828be";
             const response = await fetch(logoUrl);
             const blob = await response.blob();
             const reader = new FileReader();

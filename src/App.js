@@ -5,40 +5,16 @@ import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
 
 import { 
-    getAuth, 
-    onAuthStateChanged, 
-    createUserWithEmailAndPassword, 
-    signInWithEmailAndPassword, 
-    signOut 
+    getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut 
 } from 'firebase/auth';
 
 import { 
-    getFirestore, 
-    collection, 
-    addDoc, 
-    query, 
-    where, 
-    getDocs, 
-    doc, 
-    getDoc,
-    updateDoc,
-    onSnapshot,
-    setDoc,
-    Timestamp,
-    runTransaction,
-    orderBy,
-    deleteDoc,
-    deleteField,
-    arrayUnion,
-    writeBatch,
-    or
+    getFirestore, collection, addDoc, query, where, getDocs, doc, getDoc, updateDoc, onSnapshot, setDoc, Timestamp,
+    runTransaction, orderBy, deleteDoc, deleteField, arrayUnion, writeBatch, or 
 } from 'firebase/firestore';
 
 import { 
-    getStorage, 
-    ref, 
-    uploadBytesResumable, 
-    getDownloadURL 
+    getStorage, ref, uploadBytesResumable, getDownloadURL 
 } from 'firebase/storage';
 
 import { Bar, Line } from 'react-chartjs-2';
@@ -50,12 +26,7 @@ import { getDatabase, ref as rtdbRef, onValue, set, onDisconnect, serverTimestam
 
 // Registro los componentes de Chart.js para poder usar las gráficas.
 ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  LineElement,
-  PointElement,
-  LineController, 
+  CategoryScale, LinearScale, BarElement, LineElement, PointElement, LineController, 
   Title,
   Tooltip,
   Legend,
@@ -64,12 +35,12 @@ ChartJS.register(
 
 // Mis credenciales de Firebase para conectar el frontend con el backend.
 const firebaseConfig = {
-  apiKey: "AIzaSyA7H6G0mXCy9DmoLg3fSW3TrxIRcEzz9jg",
-  authDomain: "portal-evelsa.firebaseapp.com",
-  projectId: "portal-evelsa",
-  storageBucket: "portal-evelsa.firebasestorage.app",
-  messagingSenderId: "847174487471",
-  appId: "1:847174487471:web:c3a57fd8315ce619a2335a"
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.REACT_APP_FIREBASE_APP_ID
 };
 
 // Inicializo Firebase para poder usar la base de datos, autenticación, etc.
@@ -80,26 +51,31 @@ const PROYECTOS_COLLECTION = 'proyectos_v2';
 const storage = getStorage(app);
 const rtdb = getDatabase(app);
 
+// Funcion de formato de horario
 const formatDate = (timestamp) => {
     if (!timestamp) return '---';
     
-    let date;
-    if (timestamp && typeof timestamp.toDate === 'function') {
-        date = timestamp.toDate();
-    } else {
-        date = new Date(timestamp);
+    try {
+        let date;
+        if (typeof timestamp.toDate === 'function') {
+            date = timestamp.toDate();
+        } else if (timestamp instanceof Date) {
+            date = timestamp;
+        } else {
+            date = new Date(timestamp);
+        }
+
+        if (isNaN(date.getTime())) return '---';
+
+        return new Intl.DateTimeFormat('es-MX', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        }).format(date);
+    } catch (err) {
+        console.error("Error formatting date:", err);
+        return 'Error';
     }
-
-    if (isNaN(date.getTime())) return '---';
-
-    const userTimezoneOffset = date.getTimezoneOffset() * 60000;
-    const adjustedDate = new Date(date.getTime() + userTimezoneOffset);
-    
-    return adjustedDate.toLocaleDateString('es-MX', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-    });
 };
 
 /**
@@ -1290,25 +1266,34 @@ const HRDashboard = () => {
         tomadosManual: 0 
     });
     const [historyModalEmployee, setHistoryModalEmployee] = useState(null);
+    const [loadingEmployees, setLoadingEmployees] = useState(true);
 
     useEffect(() => {
-        const qUsers = query(collection(db, "usuarios"));
+        setLoadingEmployees(true);
+
+        const qUsers = query(collection(db, "usuarios")); 
+        
         const unsubscribeUsers = onSnapshot(qUsers, (snapshot) => {
             const usersData = snapshot.docs
                 .map(doc => ({ id: doc.id, ...doc.data() }))
                 .filter(user => {
-                    if (user.rol === 'cliente' || user.roles?.includes('cliente')) return false;
+                    const sensitiveRoles = ['administrador', 'directivo', 'rh', 'cliente'];
+                    
+                    if (sensitiveRoles.includes(user.rol)) return false;
 
-                    const rolesDeNomina = ['tecnico', 'supervisor', 'practicante', 'ecotech'];
-                    const esOperativo = 
-                        rolesDeNomina.includes(user.rol) || 
-                        (user.roles && user.roles.some(r => rolesDeNomina.includes(r)));
+                    if (user.roles && user.roles.some(r => sensitiveRoles.includes(r))) return false;
 
-                    return esOperativo;
+                    return true;
                 });
             
             setEmployees(usersData);
+            setLoadingEmployees(false);
+        }, (error) => {
+            console.error("Error fetching employees:", error);
+            toast.error("Error de seguridad al cargar empleados.");
+            setLoadingEmployees(false);
         });
+
         const qRequests = query(
             collection(db, "solicitudesVacaciones"),
             or(
@@ -1316,13 +1301,13 @@ const HRDashboard = () => {
                 where("estado", "==", "Pendiente Supervisor")
             )
         );
+
         const unsubscribeRequests = onSnapshot(qRequests, (snapshot) => {
             const allPending = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             const visibleToRH = allPending.filter(req => 
                 req.estado === 'Pendiente RH' || 
                 (req.estado === 'Pendiente Supervisor' && req.rol === 'supervisor')
             );
-            
             setVacationRequests(visibleToRH);
         });
 
@@ -1333,22 +1318,41 @@ const HRDashboard = () => {
     }, []);
 
     const handleSaveData = async (userId) => {
-        const userRef = doc(db, "usuarios", userId);
+        if(!userId) return;
+        
         try {
+            const userRef = doc(db, "usuarios", userId);
             const updatePayload = {
                 diasAcumuladosAnteriores: Number(editData.acumulados) || 0,
                 diasTomadosManuales: Number(editData.tomadosManual) || 0
             };
+            
             if (editData.fecha) {
-                updatePayload.fechaIngreso = Timestamp.fromDate(new Date(editData.fecha + 'T12:00:00'));
+                const newDate = new Date(editData.fecha + 'T12:00:00');
+                if(!isNaN(newDate.getTime())) {
+                     updatePayload.fechaIngreso = Timestamp.fromDate(newDate);
+                } else {
+                    toast.warning("Fecha inválida, no se actualizó la fecha.");
+                }
             }
+            
             await updateDoc(userRef, updatePayload);
             setEditingId(null);
-            toast.success("Datos actualizados");
+            toast.success("Datos de empleado actualizados correctamente.");
         } catch (error) {
-            console.error("Error:", error);
-            alert("No se pudieron actualizar los datos.");
+            console.error("Error updating employee:", error);
+            toast.error("Error al actualizar: Verifique permisos.");
         }
+    };
+
+    const startEditing = (emp) => {
+        setEditingId(emp.id);
+        const dateStr = emp.fechaIngreso ? emp.fechaIngreso.toDate().toISOString().split('T')[0] : '';
+        setEditData({
+            fecha: dateStr,
+            acumulados: emp.diasAcumuladosAnteriores || 0,
+            tomadosManual: emp.diasTomadosManuales || 0
+        });
     };
 
     return (
@@ -1361,15 +1365,16 @@ const HRDashboard = () => {
             </div>
 
             <div className="bg-white rounded-xl shadow overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+                <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
                     <h2 className="text-lg font-semibold text-gray-700">Nómina de Empleados</h2>
+                    {loadingEmployees && <span className="text-sm text-blue-600">Actualizando...</span>}
                 </div>
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">
                             <tr>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Empleado</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Ingreso</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Ingreso / Ajustes</th>
                                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase bg-green-50">Saldo Disponible</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
                             </tr>
@@ -1377,39 +1382,58 @@ const HRDashboard = () => {
                         <tbody className="bg-white divide-y divide-gray-200">
                             {employees.map(emp => {
                                 const balance = calculateVacationBalance(emp.fechaIngreso, emp.historialVacaciones || []);
-                                
+                                const ajusteManual = (emp.diasAcumuladosAnteriores || 0) - (emp.diasTomadosManuales || 0);
+                                const saldoFinal = balance.disponibles + ajusteManual;
+
                                 return (
-                                    <tr key={emp.id}>
-                                        <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">
-                                            {emp.nombreCompleto}
-                                            <div className="text-xs text-gray-500 font-normal">Antigüedad: {balance.antiguedad} años</div>
+                                    <tr key={emp.id} className="hover:bg-gray-50 transition-colors">
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            <div className="text-sm font-medium text-gray-900">{emp.nombreCompleto}</div>
+                                            <div className="text-xs text-gray-500">{emp.rol}</div>
+                                            <div className="text-xs text-gray-400">Antigüedad: {balance.antiguedad} años</div>
                                         </td>
                                         
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                                             {editingId === emp.id ? (
-                                                <div className="flex items-center space-x-2">
-                                                    <input type="date" className="border rounded p-1 text-xs w-32" value={editData.fecha} onChange={(e) => setEditData({...editData, fecha: e.target.value})} />
-                                                    <button onClick={() => handleSaveData(emp.id)} className="text-green-600 font-bold">✓</button>
-                                                    <button onClick={() => setEditingId(null)} className="text-red-600">✕</button>
+                                                <div className="flex flex-col space-y-2 bg-yellow-50 p-2 rounded border border-yellow-200">
+                                                    <div>
+                                                        <label className="text-xs font-bold block">Ingreso:</label>
+                                                        <input type="date" className="border rounded p-1 text-xs w-full" value={editData.fecha} onChange={(e) => setEditData({...editData, fecha: e.target.value})} />
+                                                    </div>
+                                                    <div className="flex space-x-2">
+                                                        <div>
+                                                            <label className="text-xs font-bold block" title="Días extra/anteriores">Acum. (+)</label>
+                                                            <input type="number" className="border rounded p-1 text-xs w-16" value={editData.acumulados} onChange={(e) => setEditData({...editData, acumulados: e.target.value})} />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-xs font-bold block" title="Días tomados fuera del sistema">Manual (-)</label>
+                                                            <input type="number" className="border rounded p-1 text-xs w-16" value={editData.tomadosManual} onChange={(e) => setEditData({...editData, tomadosManual: e.target.value})} />
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex justify-end space-x-2 mt-1">
+                                                        <button onClick={() => setEditingId(null)} className="text-red-600 text-xs font-bold px-2">Cancelar</button>
+                                                        <button onClick={() => handleSaveData(emp.id)} className="bg-green-600 text-white text-xs font-bold px-2 py-1 rounded">Guardar</button>
+                                                    </div>
                                                 </div>
                                             ) : (
-                                                <div className="flex items-center space-x-2">
-                                                    <span>{emp.fechaIngreso ? emp.fechaIngreso.toDate().toLocaleDateString('es-MX') : '---'}</span>
-                                                    <button onClick={() => setEditingId(emp.id)} className="text-gray-400 hover:text-blue-600">✏️</button>
+                                                <div className="group flex items-center space-x-2 cursor-pointer" onClick={() => startEditing(emp)}>
+                                                    <span>{emp.fechaIngreso ? formatDate(emp.fechaIngreso) : '---'}</span>
+                                                    <span className="text-gray-400 group-hover:text-blue-600">✏️</span>
                                                 </div>
                                             )}
                                         </td>
 
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-center bg-green-50 text-green-700 text-lg">
-                                            {emp.fechaIngreso ? balance.disponibles : '-'}
+                                        <td className="px-6 py-4 whitespace-nowrap text-center bg-green-50">
+                                            <span className="text-lg font-bold text-green-700">{emp.fechaIngreso ? saldoFinal : '-'}</span>
+                                            <span className="text-xs block text-green-600">días hábiles</span>
                                         </td>
 
                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                             <button 
                                                 onClick={() => setHistoryModalEmployee(emp)} 
-                                                className="text-blue-600 hover:text-blue-900 font-semibold"
+                                                className="text-indigo-600 hover:text-indigo-900 bg-indigo-50 px-3 py-1 rounded-md"
                                             >
-                                                Ver Bitácora / Ajustar
+                                                Bitácora
                                             </button>
                                         </td>
                                     </tr>
@@ -3019,6 +3043,7 @@ const OperationalReportTable = ({ projects, techniciansMap }) => {
         { value: '', label: 'Todos los Meses' },
         ...monthNames.map((name, index) => ({ value: String(index), label: name }))
     ];
+    
     const [reportType, setReportType] = useState('delivered');
     const [selectedMonth, setSelectedMonth] = useState('');
     const [selectedYear, setSelectedYear] = useState(currentYear);
@@ -3034,6 +3059,15 @@ const OperationalReportTable = ({ projects, techniciansMap }) => {
                      .map(name => ({ value: name, label: name }));
     }, [techniciansMap]);
 
+    const getDaysElapsed = (timestamp) => {
+        if (!timestamp) return 0;
+        const start = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+        const now = new Date();
+        const diff = now.getTime() - start.getTime();
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+        return days > 0 ? days : 0;
+    };
+
     const { filteredProjects, totalSum, totalLabel } = React.useMemo(() => {
         let filtered = [];
         if (reportType === 'delivered') {
@@ -3047,8 +3081,8 @@ const OperationalReportTable = ({ projects, techniciansMap }) => {
         } else {
             filtered = projects.filter(p => {
                 const dueDate = p.fechaEntregaInterna?.toDate();
-                if (!dueDate) return false;
                 const statusMatch = p.estado === 'Activo' && !p.fechaFinTecnicoReal;
+                if (!dueDate) return statusMatch && !selectedMonth;
                 const yearMatch = dueDate.getFullYear() === selectedYear;
                 const monthMatch = !selectedMonth || dueDate.getMonth() === parseInt(selectedMonth, 10);
                 return statusMatch && yearMatch && monthMatch;
@@ -3062,9 +3096,23 @@ const OperationalReportTable = ({ projects, techniciansMap }) => {
         const sum = filtered.reduce((acc, p) => acc + (p.precioCotizacionCliente || 0), 0);
         
         filtered.sort((a, b) => {
-            const dateA = (reportType === 'delivered' ? (a.fase2_fechaFinTecnico || a.fase1_fechaFinTecnico) : a.fechaEntregaInterna)?.toDate() || 0;
-            const dateB = (reportType === 'delivered' ? (b.fase2_fechaFinTecnico || b.fase1_fechaFinTecnico) : b.fechaEntregaInterna)?.toDate() || 0;
-            return dateB - dateA;
+            if (reportType === 'pending') {
+
+                const orderA = a.sortOrder || 99;
+                const orderB = b.sortOrder || 99;
+                
+                if (orderA !== orderB) {
+                    return orderA - orderB;
+                }
+                
+                const dateA = a.fechaEntregaInterna?.toDate() || 0;
+                const dateB = b.fechaEntregaInterna?.toDate() || 0;
+                return dateA - dateB; 
+            } else {
+                const dateA = (a.fase2_fechaFinTecnico || a.fase1_fechaFinTecnico)?.toDate() || 0;
+                const dateB = (b.fase2_fechaFinTecnico || b.fase1_fechaFinTecnico)?.toDate() || 0;
+                return dateB - dateA;
+            }
         });
 
         const label = selectedMonth ? `${monthNames[parseInt(selectedMonth, 10)]} ${selectedYear}` : `Todo ${selectedYear}`;
@@ -3084,8 +3132,8 @@ const OperationalReportTable = ({ projects, techniciansMap }) => {
                 <div className="flex items-center space-x-2">
                     <label className="text-sm font-medium">Ver:</label>
                     <select value={reportType} onChange={e => { setReportType(e.target.value); setCurrentPage(1); }} className="border-gray-300 rounded-md p-2 text-sm">
-                        <option value="delivered">Entregados en</option>
-                        <option value="pending">Pendientes para</option>
+                        <option value="delivered">Entregados</option>
+                        <option value="pending">Pendientes</option>
                     </select>
                 </div>
                 <div className="flex items-center space-x-2">
@@ -3125,8 +3173,10 @@ const OperationalReportTable = ({ projects, techniciansMap }) => {
                             <th className="px-4 py-2 text-left text-xs font-medium uppercase">Responsable</th>
                             {reportType === 'pending' && (
                                 <>
-                                    <th className="px-4 py-2 text-left text-xs font-medium uppercase">Estatus Entrega</th>
-                                    <th className="px-4 py-2 text-left text-xs font-medium uppercase">Notas Supervisor</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium uppercase">Estatus</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium uppercase">Notas</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium uppercase">Fecha de Activacion</th>
+                                    <th className="px-4 py-2 text-center text-xs font-medium uppercase">Días Transcurridos</th>
                                 </>
                             )}
                             <th className="px-4 py-2 text-left text-xs font-medium uppercase">{reportType === 'delivered' ? 'Nota Entrega' : 'Fecha Límite'}</th>
@@ -3145,9 +3195,15 @@ const OperationalReportTable = ({ projects, techniciansMap }) => {
                                         <td className="px-4 py-2 text-sm" title={p.notasSupervisor}>
                                             <p className="w-32 truncate">{p.notasSupervisor || '---'}</p>
                                         </td>
+                                        <td className="px-4 py-2 text-sm text-gray-600">
+                                            {formatDate(p.fechaApertura)}
+                                        </td>
+                                        <td className="px-4 py-2 text-center font-bold">
+                                            {getDaysElapsed(p.fechaApertura)}
+                                        </td>
                                     </>
                                 )}
-                                <td className="px-4 py-2">{reportType === 'delivered' ? p.notaEntregaNumero : formatDate(p.fechaEntregaInterna)}</td>
+                                <td className="px-4 py-2 text-sm">{reportType === 'delivered' ? p.notaEntregaNumero : formatDate(p.fechaEntregaInterna)}</td>
                             </tr>
                         ))}
                     </tbody>
@@ -3157,7 +3213,7 @@ const OperationalReportTable = ({ projects, techniciansMap }) => {
                                 Total {reportType === 'delivered' ? 'Entregado' : 'Pendiente'} ({totalLabel}):
                             </td>
                             <td className="px-4 py-3 font-bold text-lg text-gray-900">${totalSum.toFixed(2)}</td>
-                            <td colSpan={reportType === 'delivered' ? 2 : 4}></td>
+                            <td colSpan={reportType === 'delivered' ? 2 : 6}></td>
                         </tr>
                     </tfoot>
                 </table>
